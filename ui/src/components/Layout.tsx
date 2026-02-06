@@ -30,6 +30,11 @@ const menuItems = [
     icon: <FilePdfOutlined />,
     label: 'PDF 생성',
   },
+  {
+    key: '/test-echo',
+    icon: <BookOutlined />, // Using BookOutlined for now, can change later if needed
+    label: 'Echo 테스트',
+  },
 ];
 
 export default function Layout() {

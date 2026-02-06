@@ -9,6 +9,7 @@ import CoursesPage from './pages/CoursesPage';
 import InstructorsPage from './pages/InstructorsPage';
 import TemplatesPage from './pages/TemplatesPage';
 import RenderPage from './pages/RenderPage';
+import { TestEchoPage } from './pages/TestEchoPage';
 import { mcpClient } from './api/mcpClient';
 
 const queryClient = new QueryClient({
@@ -41,6 +42,7 @@ function AppContent() {
           <Route path="instructors" element={<InstructorsPage />} />
           <Route path="templates" element={<TemplatesPage />} />
           <Route path="render" element={<RenderPage />} />
+          <Route path="test-echo" element={<TestEchoPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

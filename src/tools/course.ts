@@ -17,6 +17,11 @@ export const courseGetSchema = {
   id: z.string().describe('코스 ID'),
 };
 
+export const courseListSchema = {
+  limit: z.number().int().min(1).max(100).optional().describe('최대 조회 개수 (기본 50)'),
+  offset: z.number().int().min(0).optional().describe('오프셋 (기본 0)'),
+};
+
 // 핸들러 정의
 export async function courseUpsertHandler(args: {
   id?: string;
@@ -61,6 +66,36 @@ export async function courseUpsertHandler(args: {
     const message = error instanceof Error ? error.message : 'Unknown error';
     return {
       content: [{ type: 'text' as const, text: `Failed to upsert course: ${message}` }],
+      isError: true,
+    };
+  }
+}
+
+export async function courseListHandler(args: { limit?: number; offset?: number }) {
+  try {
+    const limit = args.limit || 50;
+    const offset = args.offset || 0;
+
+    const [courses, total] = await Promise.all([
+      prisma.course.findMany({
+        where: { deletedAt: null },
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        skip: offset,
+        include: {
+          _count: { select: { Modules: true, Schedules: true } },
+        },
+      }),
+      prisma.course.count({ where: { deletedAt: null } }),
+    ]);
+
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify({ courses, total, limit, offset }) }],
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return {
+      content: [{ type: 'text' as const, text: `Failed to list courses: ${message}` }],
       isError: true,
     };
   }

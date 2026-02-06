@@ -6,10 +6,10 @@ export const instructorUpsertSchema = {
   id: z.string().optional().describe('없으면 새로 생성'),
   name: z.string().describe('강사 이름'),
   title: z.string().optional(),
-  email: z.string().email().optional(),
+  email: z.string().email().optional().or(z.literal('')),
   phone: z.string().optional(),
   affiliation: z.string().optional(),
-  avatarUrl: z.string().url().optional(),
+  avatarUrl: z.string().url().optional().or(z.literal('')),
   tagline: z.string().optional(),
   specialties: z.array(z.string()).optional(),
   certifications: z.array(z.string()).optional(),
@@ -19,6 +19,11 @@ export const instructorUpsertSchema = {
 
 export const instructorGetSchema = {
   id: z.string().describe('강사 ID'),
+};
+
+export const instructorListSchema = {
+  limit: z.number().int().min(1).max(100).optional().describe('최대 조회 개수 (기본 50)'),
+  offset: z.number().int().min(0).optional().describe('오프셋 (기본 0)'),
 };
 
 // 핸들러 정의
@@ -77,6 +82,33 @@ export async function instructorUpsertHandler(args: {
     const message = error instanceof Error ? error.message : 'Unknown error';
     return {
       content: [{ type: 'text' as const, text: `Failed to upsert instructor: ${message}` }],
+      isError: true,
+    };
+  }
+}
+
+export async function instructorListHandler(args: { limit?: number; offset?: number }) {
+  try {
+    const limit = args.limit || 50;
+    const offset = args.offset || 0;
+
+    const [instructors, total] = await Promise.all([
+      prisma.instructor.findMany({
+        where: { deletedAt: null },
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        skip: offset,
+      }),
+      prisma.instructor.count({ where: { deletedAt: null } }),
+    ]);
+
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify({ instructors, total, limit, offset }) }],
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return {
+      content: [{ type: 'text' as const, text: `Failed to list instructors: ${message}` }],
       isError: true,
     };
   }

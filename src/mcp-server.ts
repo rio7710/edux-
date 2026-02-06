@@ -1,5 +1,7 @@
+import express from 'express';
+import cors from 'cors';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import {
   courseUpsertSchema,
   courseUpsertHandler,
@@ -38,6 +40,10 @@ import {
   renderSchedulePdfSchema,
   renderSchedulePdfHandler,
 } from './tools/render.js'; // Import render tools
+import {
+  testEchoSchema,
+  testEchoHandler,
+} from './tools/test.js';
 
 // MCP 서버 인스턴스 생성
 const server = new McpServer({
@@ -149,11 +155,31 @@ server.tool(
   async (args) => renderSchedulePdfHandler(args)
 );
 
-// stdio 전송으로 서버 시작
+// 툴 등록: test.echo
+server.tool(
+  'test.echo',
+  '간단한 에코 테스트 툴',
+  testEchoSchema,
+  async (args) => testEchoHandler(args)
+);
+
+// Express 서버로 MCP HTTP transport 실행
 async function main() {
-  const transport = new StdioServerTransport();
+  const app = express();
+  const port = 3001;
+
+  app.use(cors());
+  app.use(express.json());
+
+  const transport = new StreamableHTTPServerTransport();
+  
   await server.connect(transport);
-  console.error('[edux] MCP server started (stdio mode)');
+
+  app.use((req, res) => transport.handleRequest(req, res));
+
+  app.listen(port, () => {
+    console.error(`[edux] MCP server listening on http://localhost:${port}`);
+  });
 }
 
 main().catch((error) => {

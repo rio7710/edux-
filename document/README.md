@@ -14,6 +14,9 @@ MCP 표준 프로토콜(stdio / SSE)을 통해 **Claude Desktop**, **Claude CLI*
 - `API_REFERENCE.md` — MCP 전송 방식, JWT 인증, 정적 파일, 프로토콜 메시지 예시
 - `TEMPLATES.md` — Handlebars 템플릿 규칙과 플레이스홀더
 - `WORKFLOW.md` — 단계별 절차(한 단계 = 한 툴 호출), 에러 처리 규칙
+- `to_claude.md` — Claude에게 전달할 작업 지시 및 참고 사항
+- `to_gemini.md` — Gemini에게 전달할 작업 지시 및 참고 사항
+
 - `SETUP_WINDOWS.md` — Windows 11 + VS Code 설치, TypeScript 설정, Claude Desktop 연동
 - `SECURITY.md` — JWT 인증, RBAC, 템플릿 샌드박스, Puppeteer 리소스 보호, PDF 저장소 관리
 - `FRONTEND_GUIDE.md` — 프론트엔드 기술 스택, 구조, 컴포넌트 개발 및 상태 관리 규칙

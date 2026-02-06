@@ -34,23 +34,23 @@ class McpClient {
         console.log('[MCP] SSE connected');
       };
 
-      this.eventSource.onmessage = (event) => {
+      // Handle endpoint event (MCP SDK sends this as a named event)
+      this.eventSource.addEventListener('endpoint', (event: MessageEvent) => {
+        const endpointUrl = event.data;
+        console.log('[MCP] Received endpoint:', endpointUrl);
+        const url = new URL(endpointUrl, window.location.origin);
+        this.sessionId = url.searchParams.get('sessionId');
+        this.connected = true;
+        console.log('[MCP] Session ID:', this.sessionId);
+        this.onConnectCallbacks.forEach(cb => cb());
+        resolve();
+      });
+
+      // Handle message events (responses from MCP server)
+      this.eventSource.addEventListener('message', (event: MessageEvent) => {
         try {
           const data = JSON.parse(event.data);
 
-          // Handle session ID from endpoint event
-          if (data.endpoint) {
-            // Extract sessionId from endpoint URL
-            const url = new URL(data.endpoint, window.location.origin);
-            this.sessionId = url.searchParams.get('sessionId');
-            this.connected = true;
-            console.log('[MCP] Session ID:', this.sessionId);
-            this.onConnectCallbacks.forEach(cb => cb());
-            resolve();
-            return;
-          }
-
-          // Handle response
           if (data.id !== undefined && this.pendingRequests.has(data.id)) {
             const { resolve, reject } = this.pendingRequests.get(data.id)!;
             this.pendingRequests.delete(data.id);
@@ -63,8 +63,14 @@ class McpClient {
           }
         } catch (e) {
           console.error('[MCP] Failed to parse message:', e);
+          // If JSON parsing fails, we cannot determine which request this message was for.
+          // Reject all pending requests to prevent them from hanging indefinitely.
+          this.pendingRequests.forEach(({ reject }) => {
+            reject(new Error('Failed to parse server message. The request may not have been processed.'));
+          });
+          this.pendingRequests.clear();
         }
-      };
+      });
 
       this.eventSource.onerror = (error) => {
         console.error('[MCP] SSE error:', error);
@@ -158,6 +164,9 @@ export const api = {
 
   courseGet: (id: string) => mcpClient.callTool('course.get', { id }),
 
+  courseList: (limit = 50, offset = 0) =>
+    mcpClient.callTool('course.list', { limit, offset }),
+
   // Instructor
   instructorUpsert: (data: {
     id?: string;
@@ -170,6 +179,9 @@ export const api = {
   }) => mcpClient.callTool('instructor.upsert', data),
 
   instructorGet: (id: string) => mcpClient.callTool('instructor.get', { id }),
+
+  instructorList: (limit = 50, offset = 0) =>
+    mcpClient.callTool('instructor.list', { limit, offset }),
 
   // Module
   moduleBatchSet: (courseId: string, modules: Array<{
@@ -214,4 +226,7 @@ export const api = {
 
   renderSchedulePdf: (templateId: string, scheduleId: string) =>
     mcpClient.callTool('render.schedulePdf', { templateId, scheduleId }),
+
+  // Test
+  testEcho: (message: string) => mcpClient.callTool('test.echo', { message }),
 };

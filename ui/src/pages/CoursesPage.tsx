@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Button,
   Table,
@@ -10,9 +10,9 @@ import {
   message,
   Space,
 } from 'antd';
-import { PlusOutlined, EditOutlined, EyeOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, EyeOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useMutation } from '@tanstack/react-query';
-import { api } from '../api/mcpClient';
+import { api, mcpClient } from '../api/mcpClient';
 
 interface Course {
   id: string;
@@ -30,26 +30,35 @@ export default function CoursesPage() {
   const [editingCourse, setEditingCourse] = useState<Course | null>(null);
   const [viewCourse, setViewCourse] = useState<Course | null>(null);
   const [form] = Form.useForm();
-
-  // Note: MCP doesn't have a list endpoint, so we'll need to track courses locally
-  // For now, we'll just show a form to create/view individual courses
   const [courses, setCourses] = useState<Course[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const loadCourses = async () => {
+    try {
+      setLoading(true);
+      const result = await api.courseList() as { courses: Course[]; total: number };
+      setCourses(result.courses);
+    } catch (error) {
+      console.error('Failed to load courses:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    mcpClient.onConnect(() => {
+      loadCourses();
+    });
+  }, []);
 
   const createMutation = useMutation({
     mutationFn: (data: Omit<Course, 'id'> & { id?: string }) => api.courseUpsert(data),
-    onSuccess: (result: unknown) => {
-      const courseResult = result as { id: string };
-      message.success('코스가 저장되었습니다');
+    onSuccess: () => {
+      message.success('코스가 정상적으로 저장되었습니다.');
       setIsModalOpen(false);
       form.resetFields();
-
-      // Add to local list
-      if (editingCourse) {
-        setCourses(prev => prev.map(c => c.id === editingCourse.id ? { ...editingCourse, ...form.getFieldsValue(), id: courseResult.id } : c));
-      } else {
-        setCourses(prev => [...prev, { ...form.getFieldsValue(), id: courseResult.id }]);
-      }
       setEditingCourse(null);
+      loadCourses(); // Refresh list from server
     },
     onError: (error: Error) => {
       message.error(`저장 실패: ${error.message}`);
@@ -152,6 +161,9 @@ export default function CoursesPage() {
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between' }}>
         <h2 style={{ margin: 0 }}>코스 관리</h2>
         <Space>
+          <Button icon={<ReloadOutlined />} onClick={loadCourses} loading={loading}>
+            새로고침
+          </Button>
           <Input.Search
             placeholder="코스 ID로 조회"
             onSearch={(id) => id && fetchCourseMutation.mutate(id)}
@@ -167,6 +179,7 @@ export default function CoursesPage() {
         columns={columns}
         dataSource={courses}
         rowKey="id"
+        loading={loading}
         pagination={{ pageSize: 10 }}
       />
 
