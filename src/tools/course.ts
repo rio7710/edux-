@@ -29,12 +29,13 @@ async function resolveCreatorNames<T extends { createdBy?: string | null }>(
 export const courseUpsertSchema = {
   id: z.string().optional().describe("없으면 새로 생성"),
   title: z.string().describe("코스 제목"),
-  description: z.string().optional(),
-  durationHours: z.number().int().min(0).optional(),
-  isOnline: z.boolean().optional(),
-  equipment: z.array(z.string()).optional(),
-  goal: z.string().optional(),
-  notes: z.string().optional(),
+  description: z.string().optional().nullable(),
+  durationHours: z.number().int().min(0).optional().nullable(),
+  isOnline: z.boolean().optional().nullable(),
+  equipment: z.array(z.string()).optional().nullable(),
+  goal: z.string().optional().nullable(),
+  notes: z.string().optional().nullable(),
+  instructorIds: z.array(z.string()).optional().nullable(),
   token: z.string().optional().describe("인증 토큰 (등록자 추적용)"),
 };
 
@@ -57,12 +58,13 @@ export const courseListSchema = {
 export async function courseUpsertHandler(args: {
   id?: string;
   title: string;
-  description?: string;
-  durationHours?: number;
-  isOnline?: boolean;
-  equipment?: string[];
-  goal?: string;
-  notes?: string;
+  description?: string | null;
+  durationHours?: number | null;
+  isOnline?: boolean | null;
+  equipment?: string[] | null;
+  goal?: string | null;
+  notes?: string | null;
+  instructorIds?: string[] | null;
   token?: string;
 }) {
   try {
@@ -84,24 +86,38 @@ export async function courseUpsertHandler(args: {
       create: {
         id: courseId,
         title: args.title,
-        description: args.description,
-        durationHours: args.durationHours,
-        isOnline: args.isOnline,
-        equipment: args.equipment || [],
-        goal: args.goal,
-        notes: args.notes,
+        description: args.description ?? undefined,
+        durationHours: args.durationHours ?? undefined,
+        isOnline: args.isOnline ?? undefined,
+        equipment: args.equipment ?? [],
+        goal: args.goal ?? undefined,
+        notes: args.notes ?? undefined,
         createdBy,
       },
       update: {
         title: args.title,
-        description: args.description,
-        durationHours: args.durationHours,
-        isOnline: args.isOnline,
-        equipment: args.equipment || [],
-        goal: args.goal,
-        notes: args.notes,
+        description: args.description ?? undefined,
+        durationHours: args.durationHours ?? undefined,
+        isOnline: args.isOnline ?? undefined,
+        equipment: args.equipment ?? [],
+        goal: args.goal ?? undefined,
+        notes: args.notes ?? undefined,
       },
     });
+
+    if (args.instructorIds !== undefined && args.instructorIds !== null) {
+      const uniqueIds = Array.from(new Set(args.instructorIds));
+      await prisma.courseInstructor.deleteMany({ where: { courseId } });
+      if (uniqueIds.length > 0) {
+        await prisma.courseInstructor.createMany({
+          data: uniqueIds.map((instructorId) => ({
+            courseId,
+            instructorId,
+          })),
+          skipDuplicates: true,
+        });
+      }
+    }
 
     return {
       content: [
@@ -174,6 +190,9 @@ export async function courseGetHandler(args: { id: string }) {
           where: { deletedAt: null },
           include: { Instructor: true },
         },
+        CourseInstructors: {
+          include: { Instructor: true },
+        },
       },
     });
 
@@ -219,6 +238,23 @@ export async function courseGetHandler(args: { id: string }) {
           schedule.Instructor = enrichedInstructor;
         }
       }
+    }
+
+    if (
+      enrichedCourse.CourseInstructors &&
+      enrichedCourse.CourseInstructors.length > 0
+    ) {
+      const instructors = enrichedCourse.CourseInstructors
+        .map((ci) => ci.Instructor)
+        .filter(Boolean);
+      const enrichedInstructors = await resolveCreatorNames(instructors);
+      (enrichedCourse as any).Instructors = enrichedInstructors;
+      (enrichedCourse as any).instructorIds = enrichedInstructors.map(
+        (i) => i.id,
+      );
+    } else {
+      (enrichedCourse as any).Instructors = [];
+      (enrichedCourse as any).instructorIds = [];
     }
 
     return {

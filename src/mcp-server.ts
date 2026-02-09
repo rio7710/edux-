@@ -53,6 +53,32 @@ import {
     templatePreviewHtmlSchema,
 } from "./tools/template.js";
 import { testEchoHandler, testEchoSchema } from "./tools/test.js";
+import {
+    approveInstructorHandler,
+    requestInstructorHandler,
+    updateInstructorProfileHandler,
+    userApproveInstructorSchema,
+    userDeleteHandler,
+    userDeleteSchema,
+    userListHandler,
+    userListSchema,
+    userLoginHandler,
+    userLoginSchema,
+    userMeHandler,
+    userMeSchema,
+    userGetHandler,
+    userGetSchema,
+    userRegisterHandler,
+    userRegisterSchema,
+    userRequestInstructorSchema,
+    userUpdateByAdminHandler,
+    userUpdateByAdminSchema,
+    userUpdateHandler,
+    userUpdateInstructorProfileSchema,
+    userUpdateRoleHandler,
+    userUpdateRoleSchema,
+    userUpdateSchema,
+} from "./tools/user.js";
 
 // MCP 서버 인스턴스 생성
 const server = new McpServer({
@@ -209,6 +235,113 @@ server.tool(
   "간단한 에코 테스트 툴",
   testEchoSchema,
   async (args) => testEchoHandler(args),
+);
+
+// 툴 등록: user.register
+server.tool("user.register", "회원가입", userRegisterSchema, async (args) => {
+  console.error("[DEBUG] Registering tool: user.register");
+  return userRegisterHandler(args);
+});
+
+// 툴 등록: user.login
+server.tool("user.login", "로그인", userLoginSchema, async (args) => {
+  console.error("[DEBUG] Registering tool: user.login");
+  return userLoginHandler(args);
+});
+
+// 툴 등록: user.me
+server.tool("user.me", "내 정보 조회", userMeSchema, async (args) => {
+  console.error("[DEBUG] Registering tool: user.me");
+  return userMeHandler(args);
+});
+
+// 툴 등록: user.get
+server.tool(
+  "user.get",
+  "사용자 정보 조회 (관리자)",
+  userGetSchema,
+  async (args) => {
+    console.error("[DEBUG] Registering tool: user.get");
+    return userGetHandler(args);
+  },
+);
+
+// 툴 등록: user.update
+server.tool("user.update", "내 정보 수정", userUpdateSchema, async (args) => {
+  console.error("[DEBUG] Registering tool: user.update");
+  return userUpdateHandler(args);
+});
+
+// 툴 등록: user.delete
+server.tool("user.delete", "회원 탈퇴", userDeleteSchema, async (args) => {
+  console.error("[DEBUG] Registering tool: user.delete");
+  return userDeleteHandler(args);
+});
+
+// 툴 등록: user.list
+server.tool(
+  "user.list",
+  "회원 목록 조회 (관리자)",
+  userListSchema,
+  async (args) => {
+    console.error("[DEBUG] Registering tool: user.list");
+    return userListHandler(args);
+  },
+);
+
+// 툴 등록: user.updateRole
+server.tool(
+  "user.updateRole",
+  "사용자 역할 변경 (관리자)",
+  userUpdateRoleSchema,
+  async (args) => {
+    console.error("[DEBUG] Registering tool: user.updateRole");
+    return userUpdateRoleHandler(args);
+  },
+);
+
+// 툴 등록: user.updateByAdmin
+server.tool(
+  "user.updateByAdmin",
+  "사용자 정보 수정 (관리자: 이름, 역할, 활성화)",
+  userUpdateByAdminSchema,
+  async (args) => {
+    console.error("[DEBUG] Registering tool: user.updateByAdmin");
+    return userUpdateByAdminHandler(args);
+  },
+);
+
+// 툴 등록: user.requestInstructor
+server.tool(
+  "user.requestInstructor",
+  "강사 신청/프로파일 제출",
+  userRequestInstructorSchema,
+  async (args) => {
+    console.error("[DEBUG] Registering tool: user.requestInstructor");
+    return requestInstructorHandler(args);
+  },
+);
+
+// 툴 등록: user.approveInstructor
+server.tool(
+  "user.approveInstructor",
+  "강사 승인 (관리자)",
+  userApproveInstructorSchema,
+  async (args) => {
+    console.error("[DEBUG] Registering tool: user.approveInstructor");
+    return approveInstructorHandler(args);
+  },
+);
+
+// 툴 등록: user.updateInstructorProfile
+server.tool(
+  "user.updateInstructorProfile",
+  "내 강사 프로파일 수정",
+  userUpdateInstructorProfileSchema,
+  async (args) => {
+    console.error("[DEBUG] Registering tool: user.updateInstructorProfile");
+    return updateInstructorProfileHandler(args);
+  },
 );
 
 // Express 서버로 MCP HTTP transport 실행

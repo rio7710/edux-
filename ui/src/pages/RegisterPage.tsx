@@ -1,8 +1,8 @@
-import { useState } from 'react';
-import { Form, Input, Button, Card, message, Typography } from 'antd';
-import { UserOutlined, LockOutlined, MailOutlined } from '@ant-design/icons';
-import { Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
+import { LockOutlined, MailOutlined, UserOutlined } from "@ant-design/icons";
+import { Button, Card, Checkbox, Form, Input, message, Typography } from "antd";
+import { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { useAuth } from "../contexts/AuthContext";
 
 const { Title, Text } = Typography;
 
@@ -11,6 +11,12 @@ interface RegisterForm {
   password: string;
   confirmPassword: string;
   name: string;
+  isInstructorRequested?: boolean;
+  displayName?: string;
+  title?: string;
+  bio?: string;
+  phone?: string;
+  website?: string;
 }
 
 // Password validation: 8+ chars, letters and numbers
@@ -24,7 +30,7 @@ export default function RegisterPage() {
 
   const parseError = (errorMessage: string): string => {
     // Handle MCP wrapped errors
-    if (errorMessage.includes('MCP error')) {
+    if (errorMessage.includes("MCP error")) {
       const match = errorMessage.match(/MCP error -?\d+: (.+)/);
       if (match) return match[1];
     }
@@ -33,20 +39,25 @@ export default function RegisterPage() {
 
   const onFinish = async (values: RegisterForm) => {
     if (values.password !== values.confirmPassword) {
-      message.error('비밀번호가 일치하지 않습니다.');
+      message.error("비밀번호가 일치하지 않습니다.");
       return;
     }
 
     if (!passwordRegex.test(values.password)) {
-      message.error('비밀번호는 8자 이상, 영문과 숫자를 포함해야 합니다.');
+      message.error("비밀번호는 8자 이상, 영문과 숫자를 포함해야 합니다.");
       return;
     }
 
     setLoading(true);
     try {
-      await register(values.email, values.password, values.name);
-      message.success('회원가입이 완료되었습니다!');
-      navigate('/courses');
+      await register(
+        values.email,
+        values.password,
+        values.name,
+        values.isInstructorRequested,
+      );
+      message.success("회원가입이 완료되었습니다!");
+      navigate("/courses");
     } catch (error) {
       const err = error as Error;
       message.error(parseError(err.message));
@@ -58,15 +69,15 @@ export default function RegisterPage() {
   return (
     <div
       style={{
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: '#f0f2f5',
+        minHeight: "100vh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "#f0f2f5",
       }}
     >
-      <Card style={{ width: 400, boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
-        <div style={{ textAlign: 'center', marginBottom: 24 }}>
+      <Card style={{ width: 400, boxShadow: "0 2px 8px rgba(0,0,0,0.1)" }}>
+        <div style={{ textAlign: "center", marginBottom: 24 }}>
           <Title level={3} style={{ margin: 0 }}>
             회원가입
           </Title>
@@ -82,20 +93,16 @@ export default function RegisterPage() {
         >
           <Form.Item
             name="name"
-            rules={[{ required: true, message: '이름을 입력하세요' }]}
+            rules={[{ required: true, message: "이름을 입력하세요" }]}
           >
-            <Input
-              prefix={<UserOutlined />}
-              placeholder="이름"
-              size="large"
-            />
+            <Input prefix={<UserOutlined />} placeholder="이름" size="large" />
           </Form.Item>
 
           <Form.Item
             name="email"
             rules={[
-              { required: true, message: '이메일을 입력하세요' },
-              { type: 'email', message: '올바른 이메일 형식을 입력하세요' },
+              { required: true, message: "이메일을 입력하세요" },
+              { type: "email", message: "올바른 이메일 형식을 입력하세요" },
             ]}
           >
             <Input
@@ -108,8 +115,8 @@ export default function RegisterPage() {
           <Form.Item
             name="password"
             rules={[
-              { required: true, message: '비밀번호를 입력하세요' },
-              { min: 8, message: '비밀번호는 8자 이상이어야 합니다' },
+              { required: true, message: "비밀번호를 입력하세요" },
+              { min: 8, message: "비밀번호는 8자 이상이어야 합니다" },
             ]}
             extra="8자 이상, 영문과 숫자를 포함해야 합니다"
           >
@@ -122,15 +129,17 @@ export default function RegisterPage() {
 
           <Form.Item
             name="confirmPassword"
-            dependencies={['password']}
+            dependencies={["password"]}
             rules={[
-              { required: true, message: '비밀번호를 다시 입력하세요' },
+              { required: true, message: "비밀번호를 다시 입력하세요" },
               ({ getFieldValue }) => ({
                 validator(_, value) {
-                  if (!value || getFieldValue('password') === value) {
+                  if (!value || getFieldValue("password") === value) {
                     return Promise.resolve();
                   }
-                  return Promise.reject(new Error('비밀번호가 일치하지 않습니다'));
+                  return Promise.reject(
+                    new Error("비밀번호가 일치하지 않습니다"),
+                  );
                 },
               }),
             ]}
@@ -140,6 +149,74 @@ export default function RegisterPage() {
               placeholder="비밀번호 확인"
               size="large"
             />
+          </Form.Item>
+
+          <Form.Item name="isInstructorRequested" valuePropName="checked">
+            <Checkbox>강사로 등록 신청</Checkbox>
+          </Form.Item>
+
+          <Form.Item
+            noStyle
+            shouldUpdate={(prevValues, currentValues) =>
+              prevValues.isInstructorRequested !==
+              currentValues.isInstructorRequested
+            }
+          >
+            {({ getFieldValue }) =>
+              getFieldValue("isInstructorRequested") ? (
+                <Card
+                  size="small"
+                  style={{ marginBottom: 16, backgroundColor: "#fafafa" }}
+                >
+                  <Text strong style={{ display: "block", marginBottom: 12 }}>
+                    강사 프로파일 정보
+                  </Text>
+
+                  <Form.Item
+                    name="displayName"
+                    label="표시 이름"
+                    rules={[{ message: "표시 이름을 입력하세요" }]}
+                  >
+                    <Input placeholder="강사로 표시될 이름" />
+                  </Form.Item>
+
+                  <Form.Item
+                    name="title"
+                    label="직함"
+                    rules={[{ message: "직함을 입력하세요" }]}
+                  >
+                    <Input placeholder="예: 교수, 강사, 전문가 등" />
+                  </Form.Item>
+
+                  <Form.Item
+                    name="bio"
+                    label="자기소개"
+                    rules={[{ message: "자기소개를 입력하세요" }]}
+                  >
+                    <Input.TextArea
+                      placeholder="자신의 경력, 전문성 등을 소개해주세요"
+                      rows={3}
+                    />
+                  </Form.Item>
+
+                  <Form.Item
+                    name="phone"
+                    label="연락처"
+                    rules={[{ message: "연락처를 입력하세요" }]}
+                  >
+                    <Input placeholder="예: 010-1234-5678" />
+                  </Form.Item>
+
+                  <Form.Item
+                    name="website"
+                    label="웹사이트"
+                    rules={[{ message: "웹사이트 주소를 입력하세요" }]}
+                  >
+                    <Input placeholder="https://example.com" />
+                  </Form.Item>
+                </Card>
+              ) : null
+            }
           </Form.Item>
 
           <Form.Item>
@@ -154,7 +231,7 @@ export default function RegisterPage() {
             </Button>
           </Form.Item>
 
-          <div style={{ textAlign: 'center' }}>
+          <div style={{ textAlign: "center" }}>
             <Text type="secondary">이미 계정이 있으신가요? </Text>
             <Link to="/login">로그인</Link>
           </div>

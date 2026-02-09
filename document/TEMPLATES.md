@@ -18,13 +18,13 @@
 
 <h2>세부 목차</h2>
 <table class="tbl">
-  <thead><tr><th>#</th><th>단원</th><th>내용</th><th>시간(h)</th></tr></thead>
+  <thead><tr><th>#</th><th>강의명</th><th>내용</th><th>시간(h)</th></tr></thead>
   <tbody>
-    {{#each course.Modules}}
+    {{#each course.Lectures}}
       <tr>
         <td>{{inc @index}}</td>
         <td>{{title}}</td>
-        <td>{{details}}</td>
+        <td>{{description}}</td>
         <td>{{hours}}</td>
       </tr>
     {{/each}}

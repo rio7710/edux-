@@ -1,6 +1,6 @@
 # 프로젝트 진행 상황 보고서
 
-**최종 업데이트:** 2026년 2월 9일 일요일 (업데이트: createdBy 이름 변환 개선)
+**최종 업데이트:** 2026년 2월 9일 월요일
 
 ---
 
@@ -12,19 +12,22 @@ HR 강의 계획서를 관리하고 PDF로 출력하는 MCP(Model Context Protoc
 
 ## 2. 완료된 작업 현황
 
-| 항목                            | 상태    | 비고                                                  |
-| :------------------------------ | :------ | :---------------------------------------------------- |
-| 문서 (13개)                     | ✅ 완료 | 초기 설정 시 확인                                     |
-| 프로젝트 초기화                 | ✅ 완료 | `package.json`, `tsconfig.json`, `src/` 등 기본 구조  |
-| Prisma 스키마 + DB 마이그레이션 | ✅ 완료 | `prisma/schema.prisma` 반영 및 DB 연동 확인           |
-| MCP 서버 기본 구조 구현         | ✅ 완료 | `src/mcp-server.ts` (stdio), `src/transport.ts` (SSE) |
-| Phase 3: 툴 핸들러 구현         | ✅ 완료 | 모든 13개 MCP 툴 구현 및 등록 완료                    |
-| Phase 4: PDF 렌더 큐            | ✅ 완료 | BullMQ 워커 + Puppeteer PDF 생성 구현 완료            |
-| Phase 5: React UI               | ✅ 완료 | Vite + Ant Design + TanStack Query 기본 구현          |
-| GitHub 푸시                     | ✅ 완료 | [edux repo](https://github.com/rio7710/edux-)         |
-| Phase 6: 회원관리 백엔드        | ✅ 완료 | JWT 인증, 7개 User Tools 구현                         |
-| Phase 7: 회원관리 UI            | ✅ 완료 | 로그인/가입/프로필 페이지, AuthContext                |
-| Phase 8: createdBy 추적         | ✅ 완료 | 전 엔티티 등록자 추적 + 이름 변환 표시                |
+| 항목 | 상태 | 비고 |
+| :--- | :--- | :--- |
+| 문서 (19개) | 완료 | 설계/운영 문서 + 문제 해결 가이드 |
+| 프로젝트 초기화 | 완료 | `package.json`, `tsconfig.json`, `src/` 등 기본 구조 |
+| Prisma 스키마 + DB 마이그레이션 | 완료 | `prisma/schema.prisma` 반영 및 DB 연동 확인 |
+| MCP 서버 기본 구조 구현 | 완료 | `src/mcp-server.ts` (stdio), `src/transport.ts` (SSE) |
+| Phase 3: 툴 핸들러 구현 | 완료 | 26개 MCP 툴 구현 및 등록 완료 |
+| Phase 4: PDF 렌더 큐 | 완료 | BullMQ 워커 + Puppeteer PDF 생성 구현 완료 |
+| Phase 5: React UI | 완료 | Vite + Ant Design + TanStack Query 기본 구현 |
+| GitHub 푸시 | 완료 | [edux repo](https://github.com/rio7710/edux-) |
+| Phase 6: 회원관리 백엔드 | 완료 | JWT 인증, 13개 User Tools 구현 |
+| Phase 7: 회원관리 UI | 완료 | 로그인/가입/프로필 페이지, AuthContext |
+| Phase 8: createdBy 추적 | 완료 | 전 엔티티 등록자 추적 + 이름 변환 표시 |
+| Phase 9: 회원관리 고도화 | 완료 | 역할 확장(6개), InstructorProfile, 승인 플로우 |
+| Phase 10: 과정 저장 오류 해결 | 완료 | null 처리, UI 개선, 샘플 데이터 생성 |
+| Phase 11: Lecture(강의) 엔티티 | 완료 | Course→Lecture 1:N 계층, CRUD 4개 툴 |
 
 ---
 
@@ -32,9 +35,10 @@ HR 강의 계획서를 관리하고 PDF로 출력하는 MCP(Model Context Protoc
 
 ```text
 edux/
-├── document/           # 문서 (13개)
+├── document/           # 문서 (19개: 설계, 운영, 정책, 가이드)
+├── scripts/            # 유틸리티 스크립트 (샘플 데이터 생성 등)
 ├── prisma/
-│   └── schema.prisma   # DB 스키마 (8개 테이블, 2개 enum)
+│   └── schema.prisma   # DB 스키마 (11개 테이블, 2개 enum)
 ├── public/
 │   └── pdf/            # 생성된 PDF 파일 저장
 ├── src/                # 백엔드
@@ -44,22 +48,25 @@ edux/
 │   │   ├── queue.ts    # BullMQ 큐 설정
 │   │   └── pdf.ts      # Puppeteer PDF 변환 서비스
 │   ├── tools/          # MCP 툴 핸들러
-│   │   ├── course.ts   # 코스 CRUD + createdBy
-│   │   ├── instructor.ts # 강사 CRUD + createdBy
-│   │   ├── schedule.ts # 일정 CRUD + createdBy
-│   │   ├── template.ts # 템플릿 CRUD + createdBy
-│   │   └── user.ts     # 회원 인증/관리 (7개 Tools)
+│   │   ├── course.ts   # 코스 CRUD (3개 툴) + createdBy
+│   │   ├── lecture.ts  # 강의 CRUD (4개 툴) + createdBy
+│   │   ├── instructor.ts # 강사 CRUD (3개 툴) + createdBy
+│   │   ├── schedule.ts # 일정 CRUD (3개 툴) + createdBy
+│   │   ├── template.ts # 템플릿 CRUD (4개 툴) + createdBy
+│   │   ├── render.ts   # PDF 렌더 (2개 툴)
+│   │   ├── user.ts     # 회원 인증/관리 (13개 Tools)
+│   │   └── test.ts     # 에코 테스트 (1개 툴)
 │   ├── workers/
 │   │   └── pdfWorker.ts
-│   ├── mcp-server.ts   # stdio 모드
-│   └── transport.ts    # SSE 모드
+│   ├── mcp-server.ts   # StreamableHTTP 모드
+│   └── transport.ts    # SSE 모드 (port 7777)
 ├── ui/                 # 프론트엔드 (React)
 │   ├── src/
 │   │   ├── api/mcpClient.ts        # MCP SSE 클라이언트
 │   │   ├── components/Layout.tsx   # Ant Design 레이아웃
 │   │   ├── contexts/AuthContext.tsx # 인증 상태 관리
 │   │   ├── pages/
-│   │   │   ├── CoursesPage.tsx
+│   │   │   ├── CoursesPage.tsx     # 코스 + 강의 관리
 │   │   │   ├── InstructorsPage.tsx
 │   │   │   ├── TemplatesPage.tsx
 │   │   │   ├── RenderPage.tsx
@@ -99,125 +106,105 @@ edux/
 
 ---
 
-## 5. Phase 5 완료 내역 (React UI)
+## 5. Phase 별 완료 내역
 
-### 생성된 파일
+### Phase 5: React UI
 
-| 파일                               | 설명                         |
-| :--------------------------------- | :--------------------------- |
-| `ui/src/api/mcpClient.ts`          | MCP over SSE 클라이언트      |
-| `ui/src/components/Layout.tsx`     | Ant Design 사이드바 레이아웃 |
-| `ui/src/pages/CoursesPage.tsx`     | 코스 CRUD                    |
-| `ui/src/pages/InstructorsPage.tsx` | 강사 관리                    |
-| `ui/src/pages/TemplatesPage.tsx`   | 템플릿 편집기                |
-| `ui/src/pages/RenderPage.tsx`      | PDF 생성                     |
-| `ui/vite.config.ts`                | 백엔드 프록시 설정           |
+| 파일 | 설명 |
+| :--- | :--- |
+| `ui/src/api/mcpClient.ts` | MCP over SSE 클라이언트 |
+| `ui/src/components/Layout.tsx` | Ant Design 사이드바 레이아웃 |
+| `ui/src/pages/CoursesPage.tsx` | 코스 + 강의 CRUD |
+| `ui/src/pages/InstructorsPage.tsx` | 강사 관리 |
+| `ui/src/pages/TemplatesPage.tsx` | 템플릿 편집기 |
+| `ui/src/pages/RenderPage.tsx` | PDF 생성 |
+| `ui/vite.config.ts` | 백엔드 프록시 설정 |
+
+### Phase 6: 회원관리 백엔드
+
+| 파일 | 설명 |
+| :--- | :--- |
+| `src/services/jwt.ts` | JWT 토큰 생성/검증 유틸리티 |
+| `src/tools/user.ts` | 13개 User MCP Tools |
+| `prisma/migrations/20260206053646_*` | User 스키마 마이그레이션 |
+
+### Phase 7-8: 회원관리 UI + createdBy
+
+- AuthContext (인증 상태 관리)
+- 로그인/회원가입/프로필 페이지
+- Layout 헤더 사용자 정보 표시
+- 전 엔티티 `createdBy` 필드 → 가입 아이디(이름) 변환 표시
+- 중첩 엔티티(Lectures, Schedules, Instructor) createdBy 재귀 변환
+
+### Phase 9: 회원관리 고도화
+
+**역할(Role) 확장**: `admin`, `operator`, `editor`, `instructor`, `viewer`, `guest` (6개)
+
+**강사 프로파일 기능**:
+- `InstructorProfile` 모델 (신청/승인 워크플로우)
+- `user.requestInstructor`, `user.approveInstructor`, `user.updateInstructorProfile` 툴
+- RegisterPage 강사 신청 옵션, ProfilePage 강사 프로파일 섹션
+
+### Phase 10: 과정 저장 오류 해결
+
+- Zod `.optional()` vs `.nullable()` 처리
+- Handler 파라미터 타입 동기화 (`number | null`)
+- Frontend form null → undefined 변환
+- 테이블 헤더 순서 재정렬 (No, 코스명, 시간, 온라인, 등록자, ID, 액션)
+- 샘플 데이터 11개 코스 생성
+
+### Phase 11: Lecture(강의) 엔티티 추가
+
+**변경 내역**:
+- `CourseModule` 모델 → `Lecture` 모델로 대체
+- `Course → Lecture` 1:N 관계 구성
+- `src/tools/lecture.ts` 신규 생성 (4개 MCP 툴)
+  - `lecture.upsert`: 강의 생성/수정 (courseId 필수)
+  - `lecture.get`: 강의 단건 조회
+  - `lecture.list`: 코스별 강의 목록 (order 오름차순)
+  - `lecture.delete`: 강의 소프트 삭제
+- CoursesPage 코스 상세 모달 내 강의 목록/등록/수정/삭제 UI 임베드
+- `mcpClient.ts`에 lecture API 메서드 추가
+- 코스 상세 조회 시 강의 시간 합계 우선 표시
+
+### Phase 12: 강사 매핑 고도화 + 코스 다중 강사
+
+**변경 내역**:
+- `Instructor.userId` 추가 (User ↔ Instructor 1:1 매핑)
+- `CourseInstructor` 조인 테이블 추가 (Course ↔ Instructor M:N)
+- 코스 수정 모달에 강사 다중 선택/추가/삭제 UI 반영
+- 강사 상세에 등록된 코스 목록 표시
+- 강사 계정 일괄 생성·매핑 스크립트 추가 (`scripts/backfill-instructor-users.ts`)
 
 ---
 
-## 6. GitHub 리포지토리
+## 6. 등록된 MCP 툴 요약 (총 26개)
+
+| 도메인 | 툴 | 인증 |
+| :--- | :--- | :--- |
+| Course | `course.upsert`, `course.get`, `course.list` | token (선택) |
+| Lecture | `lecture.upsert`, `lecture.get`, `lecture.list`, `lecture.delete` | token (선택) |
+| Instructor | `instructor.upsert`, `instructor.get`, `instructor.list` | token (선택) |
+| Schedule | `schedule.upsert`, `schedule.get`, `schedule.list` | token (선택) |
+| Template | `template.create`, `template.get`, `template.list`, `template.previewHtml` | token (선택) |
+| Render | `render.coursePdf`, `render.schedulePdf` | - |
+| Test | `test.echo` | - |
+| User | `user.register`, `user.login` | No |
+| User | `user.me`, `user.get`, `user.update`, `user.delete` | Yes |
+| User | `user.list`, `user.updateRole`, `user.updateByAdmin` | Admin |
+| User | `user.requestInstructor`, `user.approveInstructor`, `user.updateInstructorProfile` | Yes/Admin |
+
+---
+
+## 7. GitHub 리포지토리
 
 - **URL**: [rio7710/edux-](https://github.com/rio7710/edux-)
-- **커밋 ID**: `a8fd2c3` (Phase 1-5 완료 시점)
-- **롤백 방법**: `git checkout a8fd2c3`
+- **최신 커밋**: `c46e702` (list API 추가 + SSE 세션 관리)
+- **롤백 방법**: `git checkout <commit-hash>`
 
 ---
 
-## 7. Phase 6 완료 내역 (회원관리 백엔드)
-
-### 생성된 파일
-
-| 파일                                 | 설명                        |
-| :----------------------------------- | :-------------------------- |
-| `src/services/jwt.ts`                | JWT 토큰 생성/검증 유틸리티 |
-| `src/tools/user.ts`                  | 7개 User MCP Tools          |
-| `prisma/migrations/20260206053646_*` | User 스키마 마이그레이션    |
-
-### User 스키마 확장
-
-```prisma
-model User {
-  id             String    @id @default(cuid())
-  email          String    @unique
-  name           String
-  role           Role      @default(viewer)
-  hashedPassword String?   // nullable for social login
-  provider       String?   // 'local' | 'google' | 'kakao'
-  providerId     String?
-  isActive       Boolean   @default(true)
-  lastLoginAt    DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  deletedAt      DateTime? // soft delete
-}
-```
-
-### 구현된 MCP Tools
-
-| Tool              | 설명                 | 인증  |
-| :---------------- | :------------------- | :---- |
-| `user.register`   | 회원가입             | No    |
-| `user.login`      | 로그인 (토큰 발급)   | No    |
-| `user.me`         | 내 정보 조회         | Yes   |
-| `user.update`     | 내 정보 수정         | Yes   |
-| `user.delete`     | 회원 탈퇴 (비활성화) | Yes   |
-| `user.list`       | 회원 목록            | Admin |
-| `user.updateRole` | 역할 변경            | Admin |
-
----
-
-## 8. Phase 7-8 완료 내역 (회원관리 UI + createdBy)
-
-### 회원관리 UI
-
-- [x] AuthContext (인증 상태 관리)
-- [x] 로그인 페이지 (`/login`)
-- [x] 회원가입 페이지 (`/register`)
-- [x] 프로필 페이지 (`/profile`)
-- [x] Layout 헤더 수정 (사용자 정보 표시)
-- [x] 회원관리 사이드바 메뉴
-
-### createdBy 등록자 추적
-
-- [x] Course, Instructor, Template, Schedule에 `createdBy` 필드 추가
-- [x] 등록 시 JWT 토큰에서 사용자 ID 자동 추출
-- [x] 목록/상세 조회 시 사용자 ID를 이름으로 변환하여 표시
-- [x] 기존 null 데이터는 'admin'으로 기본 설정
-- [x] **[개선] 중첩된 엔티티 createdBy 변환** (2026-02-09)
-  - `courseGetHandler`에서 Lectures의 `createdBy`도 가입아이디(이름)로 변환
-  - 모든 리스트, 상세 조회 시 등록자는 가입 아이디로 표시
-
----
-
-## 9. Phase 8-1: createdBy 이름 변환 개선 (2026-02-09)
-
-### 문제
-
-- `courseGetHandler`에서 코스의 강의(Lectures)를 포함해서 조회할 때, 강의의 `createdBy` 필드가 CUID로 표시되는 이슈 발생
-
-### 해결
-
-- [x] 강의, 강사 등 중첩된 엔티티의 `createdBy`도 사용자 이름으로 변환하는 로직 추가
-- [x] `src/tools/course.ts` 내 `courseGetHandler` 함수 개선:
-  ```typescript
-  // 강의들의 등록자도 이름으로 변환
-  if (enrichedCourse.Lectures && enrichedCourse.Lectures.length > 0) {
-    enrichedCourse.Lectures = await resolveCreatorNames(
-      enrichedCourse.Lectures,
-    );
-  }
-  ```
-
-### 원칙
-
-**모든 리스트 조회 및 상세 조회에서 `createdBy` 필드는 가입 아이디(이름)로 표시됩니다.**
-
-- Course, Lecture, Instructor, Schedule, Template 등 모든 엔티티 동일하게 적용
-- 중첩된 관계를 따라 재귀적으로 변환 처리
-
----
-
-## 10. 실행 명령어 요약
+## 8. 실행 명령어 요약
 
 ```bash
 # 1. Docker 컨테이너 시작
@@ -240,22 +227,32 @@ npm run dev:worker
 
 ---
 
-## 11. 다음 단계 (예정)
+## 9. 테스트 계정
 
-- [ ] Lecture (강의) 엔티티 추가 (Course 하위)
+- 이메일: `sample@example.com`
+- 비밀번호: `Password123!`
+- 역할: `instructor`
+
+---
+
+## 10. 다음 단계 (예정)
+
+- [ ] 회원가입 → 강사 신청 → 강사 승인 플로우 완전 테스트
+- [ ] 이메일 검증 기능 (선택)
+- [ ] 비밀번호 재설정 기능 (선택)
 - [ ] 페이지네이션 UI 개선
 - [ ] 검색 기능
 - [ ] 소프트 삭제 UI (삭제된 항목 복원)
+- [ ] RBAC 강화 (툴 핸들러 내 역할 검증)
 - [ ] 문제은행 MCP (퀴즈/과제 - Lecture 매핑)
 - [ ] 진도 추적 MCP (사용자별 수강 현황)
 
 ---
 
-## 12. 주의사항
+## 11. 주의사항
 
 - Docker Desktop이 실행 중이어야 PostgreSQL 접근 가능
 - Redis가 없어도 코스/강사/템플릿/회원 관리 기능은 정상 동작 (PDF 렌더링 큐만 영향)
 - MCP SDK 1.26.0에서 deprecated 경고 발생 가능 (동작에는 문제없음)
 - 프론트엔드와 백엔드가 모두 실행되어야 UI가 정상 동작
-
----
+- `read_AI.md` 파일에서 개발 시 반복 실수 항목 확인 가능

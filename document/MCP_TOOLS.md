@@ -30,173 +30,168 @@
 
 ---
 
-## DB 툴
+## 코스 툴
 
 ### `course.upsert`
 
 코스 생성 또는 수정.
 
-- 파라미터:
-
-```json
-{
-  "type": "object",
-  "required": ["title"],
-  "properties": {
-    "id": { "type": "string", "description": "없으면 새로 생성" },
-    "title": { "type": "string" },
-    "description": { "type": "string" },
-    "durationHours": { "type": "integer", "minimum": 0 },
-    "isOnline": { "type": "boolean" },
-    "equipment": { "type": "array", "items": { "type": "string" } },
-    "goal": { "type": "string" },
-    "notes": { "type": "string" }
-  }
-}
-```
-
-- 응답 예시: `{ "id": "c_123", "title": "HRD 입문" }`
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `id` | string | - | 없으면 새로 생성 |
+| `title` | string | O | 코스 제목 |
+| `description` | string | - | 설명 |
+| `durationHours` | integer | - | 교육 시간 (min: 0) |
+| `isOnline` | boolean | - | 온라인 여부 |
+| `equipment` | string[] | - | 장비 목록 |
+| `goal` | string | - | 교육 목표 |
+| `notes` | string | - | 비고 |
+| `instructorIds` | string[] | - | 코스에 매핑할 강사 ID 목록 |
+| `token` | string | - | 인증 토큰 (등록자 추적용) |
 
 ### `course.get`
 
-코스 단건 조회 (모듈·스케줄 포함).
+코스 단건 조회 (강의·스케줄 포함).
 
-- 파라미터:
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `id` | string | O | 코스 ID |
 
-```json
-{
-  "type": "object",
-  "required": ["id"],
-  "properties": {
-    "id": { "type": "string" }
-  }
-}
-```
+- 응답: Course 객체 전체 (Lectures, Schedules, Instructors 관계 포함)
+- `createdBy`는 가입 이름으로 변환하여 반환
+- 강의 시간 합계를 `durationHours`에 `총합(기존값)` 형식으로 표시
 
-- 응답 예시: Course 객체 전체 (Modules, Schedules 관계 포함)
+### `course.list`
+
+코스 목록 조회 (등록자 이름으로 표시).
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `limit` | integer | - | 최대 조회 개수 (기본 50, 최대 100) |
+| `offset` | integer | - | 오프셋 (기본 0) |
+
+- 응답: `{ courses, total, limit, offset }`
 
 ---
+
+## 강의 툴
+
+### `lecture.upsert`
+
+강의 생성 또는 수정 (코스 하위).
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `id` | string | - | 없으면 새로 생성 |
+| `courseId` | string | O | 코스 ID |
+| `title` | string | O | 강의 제목 |
+| `description` | string | - | 설명 |
+| `hours` | number | - | 시간 (min: 0) |
+| `order` | integer | - | 순서 (min: 0) |
+| `token` | string | - | 인증 토큰 (등록자 추적용) |
+
+### `lecture.get`
+
+강의 단건 조회.
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `id` | string | O | 강의 ID |
+
+### `lecture.list`
+
+코스별 강의 목록 조회 (order 오름차순).
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `courseId` | string | O | 코스 ID |
+| `limit` | integer | - | 최대 조회 개수 (기본 50, 최대 100) |
+| `offset` | integer | - | 오프셋 (기본 0) |
+
+- 응답: `{ lectures, total, limit, offset }`
+
+### `lecture.delete`
+
+강의 소프트 삭제.
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `id` | string | O | 강의 ID |
+| `token` | string | - | 인증 토큰 |
+
+---
+
+## 강사 툴
 
 ### `instructor.upsert`
 
 강사 생성 또는 수정.
 
-- 파라미터:
-
-```json
-{
-  "type": "object",
-  "required": ["name"],
-  "properties": {
-    "id": { "type": "string", "description": "없으면 새로 생성" },
-    "name": { "type": "string" },
-    "title": { "type": "string" },
-    "email": { "type": "string", "format": "email" },
-    "phone": { "type": "string" },
-    "affiliation": { "type": "string" },
-    "avatarUrl": { "type": "string", "format": "uri" },
-    "tagline": { "type": "string" },
-    "specialties": { "type": "array", "items": { "type": "string" } },
-    "certifications": { "type": "array", "items": { "type": "string" } },
-    "awards": { "type": "array", "items": { "type": "string" } },
-    "links": { "type": "object" }
-  }
-}
-```
-
-- 응답 예시: `{ "id": "i_456", "name": "홍길동" }`
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `id` | string | - | 없으면 새로 생성 |
+| `name` | string | O | 강사명 |
+| `title` | string | - | 직함 |
+| `email` | string | - | 이메일 |
+| `phone` | string | - | 전화번호 |
+| `affiliation` | string | - | 소속 |
+| `specialties` | string[] | - | 전문 분야 |
+| `token` | string | - | 인증 토큰 (등록자 추적용) |
 
 ### `instructor.get`
 
 강사 단건 조회.
 
-- 파라미터:
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `id` | string | O | 강사 ID |
 
-```json
-{
-  "type": "object",
-  "required": ["id"],
-  "properties": {
-    "id": { "type": "string" }
-  }
-}
-```
+- 응답: Instructor 객체 + `Courses`(코스 매핑 목록)
 
----
+### `instructor.list`
 
-### `module.batchSet`
+강사 목록 조회 (등록자 이름으로 표시).
 
-코스의 모듈 목록을 일괄 교체 (기존 모듈 삭제 후 재생성).
-
-- 파라미터:
-
-```json
-{
-  "type": "object",
-  "required": ["courseId", "modules"],
-  "properties": {
-    "courseId": { "type": "string" },
-    "modules": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["title"],
-        "properties": {
-          "title": { "type": "string" },
-          "details": { "type": "string" },
-          "hours": { "type": "number", "minimum": 0 },
-          "order": { "type": "integer", "minimum": 0 }
-        }
-      }
-    }
-  }
-}
-```
-
-- 응답 예시: `{ "courseId": "c_123", "count": 5 }`
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `limit` | integer | - | 최대 조회 개수 (기본 50, 최대 100) |
+| `offset` | integer | - | 오프셋 (기본 0) |
 
 ---
+
+## 일정 툴
 
 ### `schedule.upsert`
 
 수업 일정 생성 또는 수정.
 
-- 파라미터:
-
-```json
-{
-  "type": "object",
-  "required": ["courseId"],
-  "properties": {
-    "id": { "type": "string", "description": "없으면 새로 생성" },
-    "courseId": { "type": "string" },
-    "instructorId": { "type": "string" },
-    "date": { "type": "string", "format": "date-time" },
-    "location": { "type": "string" },
-    "audience": { "type": "string" },
-    "remarks": { "type": "string" },
-    "customFields": { "type": "object" }
-  }
-}
-```
-
-- 응답 예시: `{ "id": "s_789", "courseId": "c_123", "date": "2026-03-15" }`
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `id` | string | - | 없으면 새로 생성 |
+| `courseId` | string | O | 코스 ID |
+| `instructorId` | string | - | 강사 ID |
+| `date` | string | - | ISO 8601 날짜/시간 |
+| `location` | string | - | 장소 |
+| `audience` | string | - | 대상 |
+| `remarks` | string | - | 비고 |
+| `token` | string | - | 인증 토큰 (등록자 추적용) |
 
 ### `schedule.get`
 
 일정 단건 조회 (코스·강사 관계 포함).
 
-- 파라미터:
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `id` | string | O | 일정 ID |
 
-```json
-{
-  "type": "object",
-  "required": ["id"],
-  "properties": {
-    "id": { "type": "string" }
-  }
-}
-```
+### `schedule.list`
+
+일정 목록 조회 (등록자 이름으로 표시).
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `limit` | integer | - | 최대 조회 개수 (기본 50, 최대 100) |
+| `offset` | integer | - | 오프셋 (기본 0) |
 
 ---
 
@@ -206,75 +201,39 @@
 
 새 템플릿 생성.
 
-- 파라미터:
-
-```json
-{
-  "type": "object",
-  "required": ["name", "html", "css"],
-  "properties": {
-    "name": { "type": "string" },
-    "html": { "type": "string", "description": "Handlebars 템플릿 HTML" },
-    "css": { "type": "string" }
-  }
-}
-```
-
-- 응답 예시: `{ "id": "t_abc", "name": "기본 코스 템플릿" }`
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `name` | string | O | 템플릿 이름 |
+| `html` | string | O | Handlebars HTML |
+| `css` | string | O | CSS |
+| `token` | string | - | 인증 토큰 |
 
 ### `template.get`
 
 템플릿 단건 조회 (버전 이력 포함).
 
-- 파라미터:
-
-```json
-{
-  "type": "object",
-  "required": ["id"],
-  "properties": {
-    "id": { "type": "string" }
-  }
-}
-```
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `id` | string | O | 템플릿 ID |
 
 ### `template.list`
 
 템플릿 목록 조회.
 
-- 파라미터:
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "page": { "type": "integer", "minimum": 1, "default": 1 },
-    "pageSize": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 }
-  }
-}
-```
-
-- 응답 예시: `{ "items": [...], "total": 5 }`
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `page` | integer | - | 페이지 (기본 1) |
+| `pageSize` | integer | - | 페이지당 개수 (기본 20, 최대 100) |
 
 ### `template.previewHtml`
 
 Handlebars 템플릿에 데이터를 주입하여 완성된 HTML을 반환.
 
-- 파라미터:
-
-```json
-{
-  "type": "object",
-  "required": ["html", "css", "data"],
-  "properties": {
-    "html": { "type": "string", "description": "Handlebars 템플릿" },
-    "css": { "type": "string" },
-    "data": { "type": "object", "description": "course, instructor, schedule 등" }
-  }
-}
-```
-
-- 응답 예시: 완성된 `<!doctype html>...` 문자열
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `html` | string | O | Handlebars 템플릿 |
+| `css` | string | O | CSS |
+| `data` | object | O | course, instructor, schedule 등 |
 
 ---
 
@@ -282,71 +241,180 @@ Handlebars 템플릿에 데이터를 주입하여 완성된 HTML을 반환.
 
 ### `render.coursePdf`
 
-코스 데이터 + 템플릿으로 PDF를 생성합니다.
-BullMQ 큐를 통해 비동기 처리되며, RenderJob 레코드가 생성됩니다.
+코스 데이터 + 템플릿으로 PDF를 생성합니다 (BullMQ 비동기 처리).
 
-- 파라미터:
-
-```json
-{
-  "type": "object",
-  "required": ["templateId", "courseId"],
-  "properties": {
-    "templateId": { "type": "string" },
-    "courseId": { "type": "string" }
-  }
-}
-```
-
-- 응답 예시: `{ "jobId": "rj_001", "status": "done", "url": "/pdf/course-c_123.pdf" }`
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `templateId` | string | O | 템플릿 ID |
+| `courseId` | string | O | 코스 ID |
 
 ### `render.schedulePdf`
 
 일정 데이터 + 템플릿으로 PDF를 생성합니다.
 
-- 파라미터:
-
-```json
-{
-  "type": "object",
-  "required": ["templateId", "scheduleId"],
-  "properties": {
-    "templateId": { "type": "string" },
-    "scheduleId": { "type": "string" }
-  }
-}
-```
-
-- 응답 예시: `{ "jobId": "rj_002", "status": "done", "url": "/pdf/schedule-s_789.pdf" }`
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `templateId` | string | O | 템플릿 ID |
+| `scheduleId` | string | O | 일정 ID |
 
 ---
 
-## 툴 등록 예시 (TypeScript)
+## 테스트 툴
 
-```typescript
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { z } from "zod";
+### `test.echo`
 
-const server = new McpServer({ name: "edux", version: "1.0.0" });
+간단한 에코 테스트 툴.
 
-server.tool(
-  "course.upsert",
-  "코스 생성 또는 수정",
-  {
-    id: z.string().optional().describe("없으면 새로 생성"),
-    title: z.string(),
-    description: z.string().optional(),
-    durationHours: z.number().int().min(0).optional(),
-    isOnline: z.boolean().optional(),
-    equipment: z.array(z.string()).optional(),
-    goal: z.string().optional(),
-    notes: z.string().optional(),
-  },
-  async (args) => {
-    const course = await prisma.course.upsert({ /* ... */ });
-    return {
-      content: [{ type: "text", text: JSON.stringify(course) }],
-    };
-  }
-);
-```
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `message` | string | O | 에코할 메시지 |
+
+---
+
+## 사용자 인증 툴
+
+### `user.register`
+
+회원가입.
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `email` | string | O | 이메일 |
+| `password` | string | O | 비밀번호 (8자 이상, 영문+숫자) |
+| `name` | string | O | 이름 |
+| `isInstructorRequested` | boolean | - | 강사 신청 여부 |
+
+### `user.login`
+
+로그인 (JWT 토큰 발급).
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `email` | string | O | 이메일 |
+| `password` | string | O | 비밀번호 |
+
+- 응답: `{ user, accessToken, refreshToken }`
+
+### `user.me`
+
+내 정보 조회.
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `token` | string | O | 액세스 토큰 |
+
+### `user.get`
+
+사용자 정보 조회 (관리자 전용).
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `token` | string | O | 액세스 토큰 (관리자) |
+| `userId` | string | O | 조회할 사용자 ID |
+
+### `user.update`
+
+내 정보 수정.
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `token` | string | O | 액세스 토큰 |
+| `name` | string | - | 이름 |
+| `currentPassword` | string | - | 현재 비밀번호 (변경 시 필수) |
+| `newPassword` | string | - | 새 비밀번호 |
+
+### `user.delete`
+
+회원 탈퇴 (소프트 삭제).
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `token` | string | O | 액세스 토큰 |
+| `password` | string | O | 비밀번호 확인 |
+
+### `user.list`
+
+회원 목록 조회 (관리자 전용).
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `token` | string | O | 액세스 토큰 (관리자) |
+| `limit` | integer | - | 최대 조회 개수 |
+| `offset` | integer | - | 오프셋 |
+
+### `user.updateRole`
+
+사용자 역할 변경 (관리자 전용).
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `token` | string | O | 액세스 토큰 (관리자) |
+| `userId` | string | O | 대상 사용자 ID |
+| `role` | enum | O | admin/operator/editor/instructor/viewer/guest |
+
+### `user.updateByAdmin`
+
+사용자 정보 수정 (관리자 전용: 이름, 역할, 활성화).
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `token` | string | O | 액세스 토큰 (관리자) |
+| `userId` | string | O | 대상 사용자 ID |
+| `name` | string | - | 이름 |
+| `role` | enum | - | 역할 |
+| `isActive` | boolean | - | 계정 활성화 여부 |
+
+### `user.requestInstructor`
+
+강사 신청/프로파일 제출.
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `token` | string | O | 액세스 토큰 |
+| `displayName` | string | - | 표시 이름 |
+| `title` | string | - | 직함 |
+| `bio` | string | - | 자기소개 |
+| `phone` | string | - | 전화번호 |
+| `website` | string | - | 웹사이트 |
+| `links` | JSON | - | 추가 링크 |
+
+### `user.approveInstructor`
+
+강사 승인 (관리자 전용).
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `token` | string | O | 액세스 토큰 (관리자) |
+| `userId` | string | O | 강사 승인 대상 사용자 ID |
+
+### `user.updateInstructorProfile`
+
+내 강사 프로파일 수정.
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `token` | string | O | 액세스 토큰 |
+| `displayName` | string | - | 표시 이름 |
+| `title` | string | - | 직함 |
+| `bio` | string | - | 자기소개 |
+| `phone` | string | - | 전화번호 |
+| `website` | string | - | 웹사이트 |
+| `links` | JSON | - | 추가 링크 |
+
+---
+
+## 등록된 툴 요약 (총 26개)
+
+| 도메인 | 툴 | 인증 |
+|--------|-----|------|
+| Course | `course.upsert`, `course.get`, `course.list` | token (선택) |
+| Lecture | `lecture.upsert`, `lecture.get`, `lecture.list`, `lecture.delete` | token (선택) |
+| Instructor | `instructor.upsert`, `instructor.get`, `instructor.list` | token (선택) |
+| Schedule | `schedule.upsert`, `schedule.get`, `schedule.list` | token (선택) |
+| Template | `template.create`, `template.get`, `template.list`, `template.previewHtml` | token (선택) |
+| Render | `render.coursePdf`, `render.schedulePdf` | - |
+| Test | `test.echo` | - |
+| User | `user.register`, `user.login` | No |
+| User | `user.me`, `user.get`, `user.update`, `user.delete` | Yes |
+| User | `user.list`, `user.updateRole`, `user.updateByAdmin` | Admin |
+| User | `user.requestInstructor`, `user.approveInstructor`, `user.updateInstructorProfile` | Yes/Admin |

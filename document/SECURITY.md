@@ -4,16 +4,17 @@
 
 ### 토큰 발급 흐름
 
-1. 클라이언트가 `POST /auth/login`에 `{ email, password }` 전송
+1. 클라이언트가 `user.login` 툴을 호출하여 `{ email, password }` 전송
 2. 서버가 `User` 테이블에서 이메일로 조회
 3. `bcryptjs`로 비밀번호 해시 비교
 4. 검증 성공 시 JWT 발급 (페이로드: `{ userId, role }`, 유효기간: 24h)
-5. 이후 요청에 `Authorization: Bearer <token>` 헤더 포함
+5. 이후 MCP 툴 호출 시 `token` 파라미터로 JWT 전달
 
 ### 토큰 검증
 
-- SSE 모드: Express 미들웨어에서 `/sse`, `/messages` 요청 시 검증
+- SSE 모드: Express 서버에서 `GET /sse` + `POST /messages` 제공, 툴 핸들러 내부에서 토큰 검증
 - stdio 모드: 로컬 환경이므로 인증 생략 가능 (개발/로컬 전용)
+- 토큰 검증 유틸: `src/services/jwt.ts` — `verifyToken(token)` → `{ userId, role }`
 
 ### 환경 변수
 
@@ -21,105 +22,101 @@
 
 ## 역할 기반 접근 제어 (RBAC)
 
-### 역할 정의
-- **viewer**: 읽기 전용 (`*.get`, `*.list` 툴만 허용)
-## 그룹 정의 및 로그인 정책
+### 역할(Role) 정의
 
-### 그룹(역할) 정의
+| 역할 | 설명 | 주요 권한 |
+|------|------|-----------|
+| **admin** | 시스템 전체 제어 | 모든 데이터/설정/사용자 관리 |
+| **operator** | 운영 업무 담당 | 코스/일정 관리, 사용자 조회/통계 |
+| **editor** | 콘텐츠 편집 | 코스/강의/템플릿/스케줄 생성/수정 |
+| **instructor** | 강의자 전용 | 자신 소유 코스/강의/일정 CRUD |
+| **viewer** | 읽기 전용 | `*.get`, `*.list` 호출만 허용 |
+| **guest** | 최소 권한 (신규 회원 기본값) | 인증 전용 뷰/체험용 |
 
-- **admin**: 시스템 전체 제어 권한. 사용자/권한 관리, 모든 데이터 및 설정 접근 가능.
-- **manager**: 운영 업무 담당자. 코스/일정 관리, 사용자 조회·통계 권한 보유.
-- **instructor**: 강의자 전용 권한. 자신이 소유한 코스/강의/일정 CRUD 가능. (강사 전용 필드 활성화 가능)
-- **editor**: 콘텐츠 편집자. 코스·템플릿·스케줄 생성/수정 권한.
-- **viewer**: 읽기 전용 권한. `*.get`, `*.list` 호출만 허용.
-- **guest**: 최소 권한. 인증 전용 뷰/체험용 액세스.
-
-> 권한(그룹)은 `User.role` 필드로 관리하며, 내부적으로 툴 레벨 매트릭스에서 세밀하게 제어합니다.
+> 역할은 `User.role` 필드(`Role` enum)로 관리하며, 툴 핸들러 내부에서 레벨별 접근 제어를 수행합니다.
 
 ### 로그인 및 인증 정책
 
 - **비밀번호 정책**
   - 최소 길이: 8자
-  - 권장: 대문자·소문자·숫자·특수문자 혼합
-  - 이전 비밀번호 재사용 제한(최근 3회)
-
-- **이메일 인증**
-  - 회원가입 시 이메일 검증 필수: 임시 토큰(`emailVerificationToken`) 발급, 만료 24시간
-  - 이메일 변경 시 재검증 필요
-
-- **비밀번호 재설정**
-  - `passwordResetToken` 발급 및 이메일 송신, 만료 기본 1시간
-  - 토큰 사용 시 일회성으로 무효화
+  - 필수 조합: 영문 + 숫자 (정규식: `/^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d@$!%*#?&]{8,}$/`)
+  - 이전 비밀번호 재사용 제한(최근 3회) — 향후 구현
 
 - **세션 및 토큰**
   - 액세스 JWT 토큰 기본 만료: 24시간
-  - 장기접속(리프레시) 토큰 사용 시: 별도 `refreshToken` 발급(장기 만료), DB에 해시 저장
-  - 로그아웃 시 클라이언트 토큰 제거 및 서버 측 토큰 블랙리스트(필요 시) 처리
+  - 리프레시 토큰: 별도 발급 (장기 만료)
+  - 로그아웃 시 클라이언트 토큰 제거 (localStorage)
 
-- **MFA(선택)**
-  - 2단계 인증(TOTP) 지원 옵션 설계: 사용자 프로필에 `mfaEnabled`, `mfaSecret` 필드 추가 권장
-
-- **계정 잠금 및_rate limiting_**
+- **계정 잠금 및 rate limiting** — 향후 구현
   - 실패 로그인 시도 5회 초과 시 계정 잠금(기본 15분)
-  - IP/계정별 요청 비율 제한 적용 (예: 10req/min 로그인 엔드포인트)
+  - IP/계정별 요청 비율 제한
 
-### 이메일 전송 및 개발 환경 모드
+### 강사 신청/승인 플로우
 
-- 개발 환경: 이메일 발송은 로그(콘솔)로 대체 가능
-- 운영 환경: SMTP 또는 메일 서비스(SendGrid, SES 등) 설정 필요
-
-### 구현 메모 (개발자 참고)
-
-- Prisma 스키마 권장 필드(예)
-
-```prisma
-model User {
-  id                   String   @id @default(cuid())
-  email                String   @unique
-  name                 String
-  role                 Role     @default(viewer)
-  hashedPassword       String?
-  emailVerified        Boolean  @default(false)
-  emailVerificationToken String?
-  passwordResetToken   String?
-  passwordResetExpires DateTime?
-  mfaEnabled           Boolean  @default(false)
-  mfaSecret            String?
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
-}
-
-enum Role {
-  admin
-  manager
-  instructor
-  editor
-  viewer
-  guest
-}
-```
-
-- MCP 툴(예): `user.register`, `user.verifyEmail`, `user.requestPasswordReset`, `user.resetPassword`, `user.login`, `user.me`, `user.list`, `user.updateRole`
+1. 회원가입 시 `isInstructorRequested: true` 또는 `user.requestInstructor` 호출
+2. `InstructorProfile` 생성 (`isPending: true`, `isApproved: false`)
+3. 관리자가 `user.approveInstructor` 호출
+4. `InstructorProfile.isApproved = true`, `isPending = false`
+5. `Instructor` 레코드 자동 생성, 사용자 역할 `instructor`로 변경
 
 ---
 
 ### 툴별 권한 매트릭스
 
-| 툴 | admin | editor | viewer |
-| --- | --- | --- | --- |
-| `course.upsert` | O | O | X |
-| `course.get` | O | O | O |
-| `instructor.upsert` | O | O | X |
-| `instructor.get` | O | O | O |
-| `module.batchSet` | O | O | X |
-| `schedule.upsert` | O | O | X |
-| `schedule.get` | O | O | O |
-| `template.create` | O | O | X |
-| `template.get` | O | O | O |
-| `template.list` | O | O | O |
-| `template.previewHtml` | O | O | O |
-| `render.coursePdf` | O | O | X |
-| `render.schedulePdf` | O | O | X |
+#### 코스/강의 도메인
+
+| 툴 | admin | operator | editor | instructor | viewer | guest |
+|----|-------|----------|--------|------------|--------|-------|
+| `course.upsert` | O | O | O | O (자기 것) | X | X |
+| `course.get` | O | O | O | O | O | X |
+| `course.list` | O | O | O | O | O | X |
+| `lecture.upsert` | O | O | O | O (자기 것) | X | X |
+| `lecture.get` | O | O | O | O | O | X |
+| `lecture.list` | O | O | O | O | O | X |
+| `lecture.delete` | O | O | O | O (자기 것) | X | X |
+
+#### 강사/일정 도메인
+
+| 툴 | admin | operator | editor | instructor | viewer | guest |
+|----|-------|----------|--------|------------|--------|-------|
+| `instructor.upsert` | O | O | O | X | X | X |
+| `instructor.get` | O | O | O | O | O | X |
+| `instructor.list` | O | O | O | O | O | X |
+| `schedule.upsert` | O | O | O | O (자기 것) | X | X |
+| `schedule.get` | O | O | O | O | O | X |
+| `schedule.list` | O | O | O | O | O | X |
+
+#### 템플릿/렌더 도메인
+
+| 툴 | admin | operator | editor | instructor | viewer | guest |
+|----|-------|----------|--------|------------|--------|-------|
+| `template.create` | O | O | O | X | X | X |
+| `template.get` | O | O | O | O | O | X |
+| `template.list` | O | O | O | O | O | X |
+| `template.previewHtml` | O | O | O | O | O | X |
+| `render.coursePdf` | O | O | O | O | X | X |
+| `render.schedulePdf` | O | O | O | O | X | X |
+
+#### 사용자 인증/관리 도메인
+
+| 툴 | admin | operator | editor | instructor | viewer | guest |
+|----|-------|----------|--------|------------|--------|-------|
+| `user.register` | - | - | - | - | - | - |
+| `user.login` | - | - | - | - | - | - |
+| `user.me` | O | O | O | O | O | O |
+| `user.get` | O | X | X | X | X | X |
+| `user.update` | O | O | O | O | O | O |
+| `user.delete` | O | O | O | O | O | O |
+| `user.list` | O | X | X | X | X | X |
+| `user.updateRole` | O | X | X | X | X | X |
+| `user.updateByAdmin` | O | X | X | X | X | X |
+| `user.requestInstructor` | O | O | O | O | O | O |
+| `user.approveInstructor` | O | X | X | X | X | X |
+| `user.updateInstructorProfile` | O | O | O | O | O | O |
+
+> `-` = 인증 불필요 (공개 API), `O` = 허용, `X` = 거부
+
+---
 
 ## 입력 검증
 
@@ -159,12 +156,14 @@ enum Role {
 ## 위협 모델
 
 | 위협 | 대응 |
-| --- | --- |
+|------|------|
 | 악의적 템플릿/데이터 삽입 (XSS) | 템플릿 샌드박스 검증, Handlebars 자동 이스케이핑 |
 | 과도한 PDF 생성 (리소스 고갈) | BullMQ 큐 + 동시 실행 제한 + 타임아웃 |
 | SSRF | Puppeteer에서 외부 URL 요청 차단 |
-| 인증 우회 | JWT 검증 미들웨어, 역할 기반 접근 제어 |
+| 인증 우회 | JWT 검증, 역할 기반 접근 제어 (RBAC) |
 | 비밀번호 탈취 | bcrypt 해싱, HTTPS 필수 (운영) |
+| 권한 상승 | 툴별 권한 매트릭스 + 토큰 페이로드 검증 |
+| 소프트 삭제 우회 | `deletedAt IS NULL` 필터 일관 적용 |
 
 ## 로깅
 

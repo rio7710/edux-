@@ -1,12 +1,12 @@
-import { createContext, useContext, useState, useEffect } from 'react';
-import type { ReactNode } from 'react';
-import { api } from '../api/mcpClient';
+import type { ReactNode } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
+import { api } from "../api/mcpClient";
 
 interface User {
   id: string;
   email: string;
   name: string;
-  role: 'admin' | 'editor' | 'viewer';
+  role: "admin" | "operator" | "editor" | "instructor" | "viewer" | "guest";
   createdAt: string;
   lastLoginAt: string | null;
 }
@@ -17,14 +17,19 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, name: string) => Promise<void>;
+  register: (
+    email: string,
+    password: string,
+    name: string,
+    isInstructorRequested?: boolean,
+  ) => Promise<void>;
   logout: () => void;
   updateUser: (user: User) => void;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
-const STORAGE_KEY = 'edux_auth';
+const STORAGE_KEY = "edux_auth";
 
 interface StoredAuth {
   accessToken: string;
@@ -65,7 +70,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const login = async (email: string, password: string) => {
-    const result = await api.userLogin({ email, password }) as {
+    const result = (await api.userLogin({ email, password })) as {
       user: User;
       accessToken: string;
       refreshToken: string;
@@ -77,8 +82,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   };
 
-  const register = async (email: string, password: string, name: string) => {
-    await api.userRegister({ email, password, name });
+  const register = async (
+    email: string,
+    password: string,
+    name: string,
+    isInstructorRequested?: boolean,
+  ) => {
+    await api.userRegister({ email, password, name, isInstructorRequested });
     // After registration, auto login
     await login(email, password);
   };
@@ -118,7 +128,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 export function useAuth() {
   const context = useContext(AuthContext);
   if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
+    throw new Error("useAuth must be used within an AuthProvider");
   }
   return context;
 }

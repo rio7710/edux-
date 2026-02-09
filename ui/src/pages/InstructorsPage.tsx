@@ -16,6 +16,7 @@ import { useAuth } from '../contexts/AuthContext';
 
 interface Instructor {
   id: string;
+  userId?: string;
   name: string;
   title?: string;
   email?: string;
@@ -23,6 +24,7 @@ interface Instructor {
   affiliation?: string;
   specialties?: string[];
   createdBy?: string;
+  Courses?: { id: string; title: string }[];
 }
 
 export default function InstructorsPage() {
@@ -146,8 +148,16 @@ export default function InstructorsPage() {
       title: 'ID',
       dataIndex: 'id',
       key: 'id',
-      width: 200,
+      width: 180,
       ellipsis: true,
+    },
+    {
+      title: '사용자 ID',
+      dataIndex: 'userId',
+      key: 'userId',
+      width: 220,
+      ellipsis: true,
+      render: (userId: string) => userId || '-',
     },
     {
       title: '이름',
@@ -295,6 +305,7 @@ export default function InstructorsPage() {
         {viewInstructor && (
           <div>
             <p><strong>ID:</strong> {viewInstructor.id}</p>
+            <p><strong>사용자 ID:</strong> {viewInstructor.userId || '-'}</p>
             <p><strong>이름:</strong> {viewInstructor.name}</p>
             <p><strong>직함:</strong> {viewInstructor.title || '-'}</p>
             <p><strong>이메일:</strong> {viewInstructor.email || '-'}</p>
@@ -302,6 +313,12 @@ export default function InstructorsPage() {
             <p><strong>소속:</strong> {viewInstructor.affiliation || '-'}</p>
             <p><strong>전문분야:</strong> {viewInstructor.specialties?.join(', ') || '-'}</p>
             <p><strong>등록자:</strong> {viewInstructor.createdBy || '-'}</p>
+            <p>
+              <strong>등록 과정:</strong>{" "}
+              {viewInstructor.Courses && viewInstructor.Courses.length > 0
+                ? viewInstructor.Courses.map((c) => c.title).join(", ")
+                : "-"}
+            </p>
           </div>
         )}
       </Modal>

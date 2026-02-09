@@ -1,21 +1,29 @@
-import { useState, useEffect } from 'react';
 import {
-  Button,
-  Table,
-  Modal,
-  Form,
-  Input,
-  InputNumber,
-  Switch,
-  message,
-  Space,
-  Divider,
-  Popconfirm,
-} from 'antd';
-import { PlusOutlined, EditOutlined, EyeOutlined, ReloadOutlined, DeleteOutlined } from '@ant-design/icons';
-import { useMutation } from '@tanstack/react-query';
-import { api, mcpClient } from '../api/mcpClient';
-import { useAuth } from '../contexts/AuthContext';
+    DeleteOutlined,
+    EditOutlined,
+    EyeOutlined,
+    PlusOutlined,
+    ReloadOutlined,
+} from "@ant-design/icons";
+import { useMutation } from "@tanstack/react-query";
+import {
+    Button,
+    Divider,
+    Form,
+    Input,
+    InputNumber,
+    message,
+    Modal,
+    Popconfirm,
+    Space,
+    Select,
+    Tag,
+    Switch,
+    Table,
+} from "antd";
+import { useEffect, useState } from "react";
+import { api, mcpClient } from "../api/mcpClient";
+import { useAuth } from "../contexts/AuthContext";
 
 interface Lecture {
   id: string;
@@ -38,6 +46,13 @@ interface Course {
   notes?: string;
   createdBy?: string;
   Lectures?: Lecture[];
+  Instructors?: Instructor[];
+  instructorIds?: string[];
+}
+
+interface Instructor {
+  id: string;
+  name: string;
 }
 
 export default function CoursesPage() {
@@ -48,35 +63,57 @@ export default function CoursesPage() {
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
   const { accessToken } = useAuth();
+  const [instructors, setInstructors] = useState<Instructor[]>([]);
 
   // Lecture state
   const [lectureModalOpen, setLectureModalOpen] = useState(false);
   const [editingLecture, setEditingLecture] = useState<Lecture | null>(null);
   const [lectureForm] = Form.useForm();
+  const [instructorPickerOpen, setInstructorPickerOpen] = useState(false);
+  const [instructorSearch, setInstructorSearch] = useState("");
+  const [selectedInstructorRowKeys, setSelectedInstructorRowKeys] = useState<
+    string[]
+  >([]);
 
   const loadCourses = async () => {
     try {
       setLoading(true);
-      const result = await api.courseList() as { courses: Course[]; total: number };
+      const result = (await api.courseList()) as {
+        courses: Course[];
+        total: number;
+      };
       setCourses(result.courses);
     } catch (error) {
-      console.error('Failed to load courses:', error);
+      console.error("Failed to load courses:", error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadInstructors = async () => {
+    try {
+      const result = (await api.instructorList()) as {
+        instructors: Instructor[];
+        total: number;
+      };
+      setInstructors(result.instructors);
+    } catch (error) {
+      console.error("Failed to load instructors:", error);
     }
   };
 
   useEffect(() => {
     mcpClient.onConnect(() => {
       loadCourses();
+      loadInstructors();
     });
   }, []);
 
   const createMutation = useMutation({
-    mutationFn: (data: Omit<Course, 'id'> & { id?: string }) =>
+    mutationFn: (data: Omit<Course, "id"> & { id?: string }) =>
       api.courseUpsert({ ...data, token: accessToken || undefined }),
     onSuccess: () => {
-      message.success('코스가 정상적으로 저장되었습니다.');
+      message.success("코스가 정상적으로 저장되었습니다.");
       setIsModalOpen(false);
       form.resetFields();
       setEditingCourse(null);
@@ -92,10 +129,10 @@ export default function CoursesPage() {
     onSuccess: (result: unknown) => {
       const course = result as Course;
       setViewCourse(course);
-      setCourses(prev => {
-        const exists = prev.find(c => c.id === course.id);
+      setCourses((prev) => {
+        const exists = prev.find((c) => c.id === course.id);
         if (exists) {
-          return prev.map(c => c.id === course.id ? course : c);
+          return prev.map((c) => (c.id === course.id ? course : c));
         }
         return [...prev, course];
       });
@@ -107,10 +144,16 @@ export default function CoursesPage() {
 
   // Lecture mutations
   const lectureMutation = useMutation({
-    mutationFn: (data: { id?: string; courseId: string; title: string; description?: string; hours?: number; order?: number }) =>
-      api.lectureUpsert({ ...data, token: accessToken || undefined }),
+    mutationFn: (data: {
+      id?: string;
+      courseId: string;
+      title: string;
+      description?: string;
+      hours?: number;
+      order?: number;
+    }) => api.lectureUpsert({ ...data, token: accessToken || undefined }),
     onSuccess: () => {
-      message.success('강의가 저장되었습니다.');
+      message.success("강의가 저장되었습니다.");
       setLectureModalOpen(false);
       lectureForm.resetFields();
       setEditingLecture(null);
@@ -124,7 +167,7 @@ export default function CoursesPage() {
   const lectureDeleteMutation = useMutation({
     mutationFn: (id: string) => api.lectureDelete(id, accessToken || undefined),
     onSuccess: () => {
-      message.success('강의가 삭제되었습니다.');
+      message.success("강의가 삭제되었습니다.");
       if (viewCourse) fetchCourseMutation.mutate(viewCourse.id);
     },
     onError: (error: Error) => {
@@ -134,7 +177,7 @@ export default function CoursesPage() {
 
   const handleCreate = () => {
     if (!accessToken) {
-      message.warning('로그인 후 이용해주세요.');
+      message.warning("로그인 후 이용해주세요.");
       return;
     }
     setEditingCourse(null);
@@ -144,12 +187,23 @@ export default function CoursesPage() {
 
   const handleEdit = (course: Course) => {
     if (!accessToken) {
-      message.warning('로그인 후 이용해주세요.');
+      message.warning("로그인 후 이용해주세요.");
       return;
     }
-    setEditingCourse(course);
-    form.setFieldsValue(course);
-    setIsModalOpen(true);
+    api
+      .courseGet(course.id)
+      .then((result) => {
+        const fullCourse = result as Course;
+        setEditingCourse(fullCourse);
+        form.setFieldsValue({
+          ...fullCourse,
+          instructorIds: fullCourse.instructorIds || [],
+        });
+        setIsModalOpen(true);
+      })
+      .catch((error: Error) => {
+        message.error(`조회 실패: ${error.message}`);
+      });
   };
 
   const handleSubmit = async () => {
@@ -158,16 +212,51 @@ export default function CoursesPage() {
       createMutation.mutate({
         ...values,
         id: editingCourse?.id,
+        durationHours:
+          values.durationHours !== null && values.durationHours !== undefined
+            ? Number(values.durationHours)
+            : undefined,
+        isOnline: values.isOnline === true,
+        instructorIds: values.instructorIds || [],
       });
     } catch (error) {
       // Validation failed
     }
   };
 
+  const handleAddInstructor = (instructorId: string) => {
+    const current = (form.getFieldValue("instructorIds") as string[]) || [];
+    if (!current.includes(instructorId)) {
+      form.setFieldsValue({ instructorIds: [...current, instructorId] });
+    }
+  };
+
+  const handleRemoveInstructor = (instructorId: string) => {
+    const current = (form.getFieldValue("instructorIds") as string[]) || [];
+    form.setFieldsValue({
+      instructorIds: current.filter((id) => id !== instructorId),
+    });
+  };
+
+  const selectedInstructorIds =
+    (form.getFieldValue("instructorIds") as string[]) || [];
+
+  const selectedInstructors = instructors.filter((i) =>
+    selectedInstructorIds.includes(i.id),
+  );
+
+  const filteredInstructors = instructors.filter((i) => {
+    const q = instructorSearch.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      i.name.toLowerCase().includes(q) || i.id.toLowerCase().includes(q)
+    );
+  });
+
   // Lecture handlers
   const handleAddLecture = () => {
     if (!accessToken) {
-      message.warning('로그인 후 이용해주세요.');
+      message.warning("로그인 후 이용해주세요.");
       return;
     }
     setEditingLecture(null);
@@ -180,7 +269,7 @@ export default function CoursesPage() {
 
   const handleEditLecture = (lecture: Lecture) => {
     if (!accessToken) {
-      message.warning('로그인 후 이용해주세요.');
+      message.warning("로그인 후 이용해주세요.");
       return;
     }
     setEditingLecture(lecture);
@@ -195,6 +284,8 @@ export default function CoursesPage() {
         ...values,
         id: editingLecture?.id,
         courseId: viewCourse!.id,
+        hours: values.hours ? Number(values.hours) : undefined,
+        order: values.order ? Number(values.order) : undefined,
       });
     } catch (error) {
       // Validation failed
@@ -203,41 +294,47 @@ export default function CoursesPage() {
 
   const columns = [
     {
-      title: 'ID',
-      dataIndex: 'id',
-      key: 'id',
+      title: "No",
+      key: "no",
+      width: 60,
+      render: (_: unknown, __: unknown, index: number) => index + 1,
+    },
+    {
+      title: "코스명",
+      dataIndex: "title",
+      key: "title",
+    },
+    {
+      title: "시간",
+      dataIndex: "durationHours",
+      key: "durationHours",
+      width: 80,
+      render: (hours: number) => (hours ? `${hours}시간` : "-"),
+    },
+    {
+      title: "온라인",
+      dataIndex: "isOnline",
+      key: "isOnline",
+      width: 80,
+      render: (isOnline: boolean) => (isOnline ? "예" : "아니오"),
+    },
+    {
+      title: "등록자",
+      dataIndex: "createdBy",
+      key: "createdBy",
+      width: 100,
+      render: (createdBy: string) => createdBy || "-",
+    },
+    {
+      title: "ID",
+      dataIndex: "id",
+      key: "id",
       width: 200,
       ellipsis: true,
     },
     {
-      title: '코스명',
-      dataIndex: 'title',
-      key: 'title',
-    },
-    {
-      title: '시간',
-      dataIndex: 'durationHours',
-      key: 'durationHours',
-      width: 80,
-      render: (hours: number) => hours ? `${hours}시간` : '-',
-    },
-    {
-      title: '온라인',
-      dataIndex: 'isOnline',
-      key: 'isOnline',
-      width: 80,
-      render: (isOnline: boolean) => isOnline ? '예' : '아니오',
-    },
-    {
-      title: '등록자',
-      dataIndex: 'createdBy',
-      key: 'createdBy',
-      width: 100,
-      render: (createdBy: string) => createdBy || '-',
-    },
-    {
-      title: '액션',
-      key: 'action',
+      title: "액션",
+      key: "action",
       width: 150,
       render: (_: unknown, record: Course) => (
         <Space>
@@ -258,39 +355,39 @@ export default function CoursesPage() {
 
   const lectureColumns = [
     {
-      title: '순서',
-      dataIndex: 'order',
-      key: 'order',
+      title: "순서",
+      dataIndex: "order",
+      key: "order",
       width: 60,
     },
     {
-      title: '강의명',
-      dataIndex: 'title',
-      key: 'title',
+      title: "강의명",
+      dataIndex: "title",
+      key: "title",
     },
     {
-      title: '설명',
-      dataIndex: 'description',
-      key: 'description',
+      title: "설명",
+      dataIndex: "description",
+      key: "description",
       ellipsis: true,
     },
     {
-      title: '시간',
-      dataIndex: 'hours',
-      key: 'hours',
+      title: "시간",
+      dataIndex: "hours",
+      key: "hours",
       width: 80,
-      render: (hours: number) => hours ? `${hours}h` : '-',
+      render: (hours: number) => (hours ? `${hours}h` : "-"),
     },
     {
-      title: '등록자',
-      dataIndex: 'createdBy',
-      key: 'createdBy',
+      title: "등록자",
+      dataIndex: "createdBy",
+      key: "createdBy",
       width: 100,
-      render: (createdBy: string) => createdBy || '-',
+      render: (createdBy: string) => createdBy || "-",
     },
     {
-      title: '액션',
-      key: 'action',
+      title: "액션",
+      key: "action",
       width: 100,
       render: (_: unknown, record: Lecture) => (
         <Space>
@@ -305,11 +402,7 @@ export default function CoursesPage() {
             okText="삭제"
             cancelText="취소"
           >
-            <Button
-              icon={<DeleteOutlined />}
-              size="small"
-              danger
-            />
+            <Button icon={<DeleteOutlined />} size="small" danger />
           </Popconfirm>
         </Space>
       ),
@@ -318,10 +411,20 @@ export default function CoursesPage() {
 
   return (
     <div>
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between' }}>
+      <div
+        style={{
+          marginBottom: 16,
+          display: "flex",
+          justifyContent: "space-between",
+        }}
+      >
         <h2 style={{ margin: 0 }}>코스 관리</h2>
         <Space>
-          <Button icon={<ReloadOutlined />} onClick={loadCourses} loading={loading}>
+          <Button
+            icon={<ReloadOutlined />}
+            onClick={loadCourses}
+            loading={loading}
+          >
             새로고침
           </Button>
           <Input.Search
@@ -345,7 +448,7 @@ export default function CoursesPage() {
 
       {/* Create/Edit Modal */}
       <Modal
-        title={editingCourse ? '코스 수정' : '새 코스 생성'}
+        title={editingCourse ? "코스 수정" : "새 코스 생성"}
         open={isModalOpen}
         onOk={handleSubmit}
         onCancel={() => setIsModalOpen(false)}
@@ -356,7 +459,7 @@ export default function CoursesPage() {
           <Form.Item
             name="title"
             label="코스명"
-            rules={[{ required: true, message: '코스명을 입력하세요' }]}
+            rules={[{ required: true, message: "코스명을 입력하세요" }]}
           >
             <Input />
           </Form.Item>
@@ -366,7 +469,11 @@ export default function CoursesPage() {
           <Form.Item name="durationHours" label="교육 시간">
             <InputNumber min={1} addonAfter="시간" />
           </Form.Item>
-          <Form.Item name="isOnline" label="온라인 여부" valuePropName="checked">
+          <Form.Item
+            name="isOnline"
+            label="온라인 여부"
+            valuePropName="checked"
+          >
             <Switch />
           </Form.Item>
           <Form.Item name="goal" label="교육 목표">
@@ -374,6 +481,37 @@ export default function CoursesPage() {
           </Form.Item>
           <Form.Item name="notes" label="비고">
             <Input.TextArea rows={2} />
+          </Form.Item>
+          <Form.Item label="강사">
+            <Space style={{ width: "100%", justifyContent: "space-between" }}>
+              <div style={{ flex: 1 }}>
+                {selectedInstructors.length > 0 ? (
+                  selectedInstructors.map((inst) => (
+                    <Tag
+                      key={inst.id}
+                      closable
+                      onClose={() => handleRemoveInstructor(inst.id)}
+                    >
+                      {inst.name}
+                    </Tag>
+                  ))
+                ) : (
+                  <span>-</span>
+                )}
+              </div>
+              <Button onClick={() => setInstructorPickerOpen(true)}>
+                강사 추가
+              </Button>
+            </Space>
+          </Form.Item>
+          <Form.Item name="instructorIds" hidden>
+            <Select
+              mode="multiple"
+              options={instructors.map((i) => ({
+                value: i.id,
+                label: i.name,
+              }))}
+            />
           </Form.Item>
         </Form>
       </Modal>
@@ -387,12 +525,16 @@ export default function CoursesPage() {
           <Button key="close" onClick={() => setViewCourse(null)}>
             닫기
           </Button>,
-          <Button key="edit" type="primary" onClick={() => {
-            if (viewCourse) {
-              handleEdit(viewCourse);
-              setViewCourse(null);
-            }
-          }}>
+          <Button
+            key="edit"
+            type="primary"
+            onClick={() => {
+              if (viewCourse) {
+                handleEdit(viewCourse);
+                setViewCourse(null);
+              }
+            }}
+          >
             수정
           </Button>,
         ]}
@@ -400,20 +542,57 @@ export default function CoursesPage() {
       >
         {viewCourse && (
           <div>
-            <p><strong>ID:</strong> {viewCourse.id}</p>
-            <p><strong>코스명:</strong> {viewCourse.title}</p>
-            <p><strong>설명:</strong> {viewCourse.description || '-'}</p>
-            <p><strong>교육 시간:</strong> {viewCourse.durationHours ? `${viewCourse.durationHours}시간` : '-'}</p>
-            <p><strong>온라인:</strong> {viewCourse.isOnline ? '예' : '아니오'}</p>
-            <p><strong>교육 목표:</strong> {viewCourse.goal || '-'}</p>
-            <p><strong>비고:</strong> {viewCourse.notes || '-'}</p>
-            <p><strong>등록자:</strong> {viewCourse.createdBy || '-'}</p>
+            <p>
+              <strong>ID:</strong> {viewCourse.id}
+            </p>
+            <p>
+              <strong>코스명:</strong> {viewCourse.title}
+            </p>
+            <p>
+              <strong>설명:</strong> {viewCourse.description || "-"}
+            </p>
+            <p>
+              <strong>교육 시간:</strong>{" "}
+              {viewCourse.durationHours
+                ? `${viewCourse.durationHours}시간`
+                : "-"}
+            </p>
+            <p>
+              <strong>온라인:</strong> {viewCourse.isOnline ? "예" : "아니오"}
+            </p>
+            <p>
+              <strong>교육 목표:</strong> {viewCourse.goal || "-"}
+            </p>
+            <p>
+              <strong>비고:</strong> {viewCourse.notes || "-"}
+            </p>
+            <p>
+              <strong>등록자:</strong> {viewCourse.createdBy || "-"}
+            </p>
+            <p>
+              <strong>강사:</strong>{" "}
+              {viewCourse.Instructors && viewCourse.Instructors.length > 0
+                ? viewCourse.Instructors.map((i) => i.name).join(", ")
+                : "-"}
+            </p>
 
             <Divider />
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: 12,
+              }}
+            >
               <h3 style={{ margin: 0 }}>강의 목록</h3>
-              <Button type="primary" size="small" icon={<PlusOutlined />} onClick={handleAddLecture}>
+              <Button
+                type="primary"
+                size="small"
+                icon={<PlusOutlined />}
+                onClick={handleAddLecture}
+              >
                 강의 추가
               </Button>
             </div>
@@ -424,15 +603,84 @@ export default function CoursesPage() {
               rowKey="id"
               size="small"
               pagination={false}
-              locale={{ emptyText: '등록된 강의가 없습니다' }}
+              locale={{ emptyText: "등록된 강의가 없습니다" }}
             />
           </div>
         )}
       </Modal>
 
+      {/* Instructor Picker Modal */}
+      <Modal
+        title="강사 선택"
+        open={instructorPickerOpen}
+        onCancel={() => setInstructorPickerOpen(false)}
+        footer={[
+          <Button
+            key="add"
+            type="primary"
+            onClick={() => {
+              selectedInstructorRowKeys.forEach((id) => handleAddInstructor(id));
+              setSelectedInstructorRowKeys([]);
+              setInstructorPickerOpen(false);
+            }}
+            disabled={selectedInstructorRowKeys.length === 0}
+          >
+            선택 추가
+          </Button>,
+          <Button key="close" onClick={() => setInstructorPickerOpen(false)}>
+            닫기
+          </Button>,
+        ]}
+        width={700}
+      >
+        <Space style={{ marginBottom: 12, width: "100%" }}>
+          <Input.Search
+            placeholder="이름 또는 ID 검색"
+            onSearch={(value) => setInstructorSearch(value)}
+            allowClear
+            style={{ width: 260 }}
+          />
+        </Space>
+        <Table
+          dataSource={filteredInstructors}
+          rowKey="id"
+          size="small"
+          pagination={{ pageSize: 8 }}
+          rowSelection={{
+            selectedRowKeys: selectedInstructorRowKeys,
+            onChange: (keys) =>
+              setSelectedInstructorRowKeys(keys as string[]),
+          }}
+          columns={[
+            { title: "이름", dataIndex: "name", key: "name" },
+            {
+              title: "ID",
+              dataIndex: "id",
+              key: "id",
+              width: 220,
+              ellipsis: true,
+            },
+            {
+              title: "액션",
+              key: "action",
+              width: 100,
+              render: (_: unknown, record: Instructor) => (
+                <Button
+                  size="small"
+                  onClick={() => handleAddInstructor(record.id)}
+                >
+                  추가
+                </Button>
+              ),
+            },
+          ]}
+          locale={{ emptyText: "등록된 강사가 없습니다" }}
+        />
+      </Modal>
+
       {/* Lecture Create/Edit Modal */}
       <Modal
-        title={editingLecture ? '강의 수정' : '새 강의 추가'}
+        title={editingLecture ? "강의 수정" : "새 강의 추가"}
         open={lectureModalOpen}
         onOk={handleLectureSubmit}
         onCancel={() => {
@@ -446,7 +694,7 @@ export default function CoursesPage() {
           <Form.Item
             name="title"
             label="강의명"
-            rules={[{ required: true, message: '강의명을 입력하세요' }]}
+            rules={[{ required: true, message: "강의명을 입력하세요" }]}
           >
             <Input />
           </Form.Item>

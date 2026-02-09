@@ -1,10 +1,10 @@
 // MCP Client for SSE communication with backend
 
 type McpResponse = {
-  jsonrpc: '2.0';
+  jsonrpc: "2.0";
   id: number;
   result?: {
-    content: Array<{ type: 'text'; text: string }>;
+    content: Array<{ type: "text"; text: string }>;
     isError?: boolean;
   };
   error?: {
@@ -17,10 +17,13 @@ class McpClient {
   private eventSource: EventSource | null = null;
   private sessionId: string | null = null;
   private messageId = 0;
-  private pendingRequests = new Map<number, {
-    resolve: (value: unknown) => void;
-    reject: (reason: unknown) => void;
-  }>();
+  private pendingRequests = new Map<
+    number,
+    {
+      resolve: (value: unknown) => void;
+      reject: (reason: unknown) => void;
+    }
+  >();
   private connected = false;
   private onConnectCallbacks: Array<() => void> = [];
 
@@ -28,26 +31,26 @@ class McpClient {
     if (this.connected) return;
 
     return new Promise((resolve, reject) => {
-      this.eventSource = new EventSource('/sse');
+      this.eventSource = new EventSource("/sse");
 
       this.eventSource.onopen = () => {
-        console.log('[MCP] SSE connected');
+        console.log("[MCP] SSE connected");
       };
 
       // Handle endpoint event (MCP SDK sends this as a named event)
-      this.eventSource.addEventListener('endpoint', (event: MessageEvent) => {
+      this.eventSource.addEventListener("endpoint", (event: MessageEvent) => {
         const endpointUrl = event.data;
-        console.log('[MCP] Received endpoint:', endpointUrl);
+        console.log("[MCP] Received endpoint:", endpointUrl);
         const url = new URL(endpointUrl, window.location.origin);
-        this.sessionId = url.searchParams.get('sessionId');
+        this.sessionId = url.searchParams.get("sessionId");
         this.connected = true;
-        console.log('[MCP] Session ID:', this.sessionId);
-        this.onConnectCallbacks.forEach(cb => cb());
+        console.log("[MCP] Session ID:", this.sessionId);
+        this.onConnectCallbacks.forEach((cb) => cb());
         resolve();
       });
 
       // Handle message events (responses from MCP server)
-      this.eventSource.addEventListener('message', (event: MessageEvent) => {
+      this.eventSource.addEventListener("message", (event: MessageEvent) => {
         try {
           const data = JSON.parse(event.data);
 
@@ -62,18 +65,22 @@ class McpClient {
             }
           }
         } catch (e) {
-          console.error('[MCP] Failed to parse message:', e);
+          console.error("[MCP] Failed to parse message:", e);
           // If JSON parsing fails, we cannot determine which request this message was for.
           // Reject all pending requests to prevent them from hanging indefinitely.
           this.pendingRequests.forEach(({ reject }) => {
-            reject(new Error('Failed to parse server message. The request may not have been processed.'));
+            reject(
+              new Error(
+                "Failed to parse server message. The request may not have been processed.",
+              ),
+            );
           });
           this.pendingRequests.clear();
         }
       });
 
       this.eventSource.onerror = (error) => {
-        console.error('[MCP] SSE error:', error);
+        console.error("[MCP] SSE error:", error);
         this.connected = false;
         reject(error);
       };
@@ -101,7 +108,10 @@ class McpClient {
     return this.connected;
   }
 
-  async callTool<T = unknown>(name: string, args: Record<string, unknown>): Promise<T> {
+  async callTool<T = unknown>(
+    name: string,
+    args: Record<string, unknown>,
+  ): Promise<T> {
     if (!this.connected || !this.sessionId) {
       await this.connect();
     }
@@ -109,9 +119,9 @@ class McpClient {
     const id = ++this.messageId;
 
     const request = {
-      jsonrpc: '2.0',
+      jsonrpc: "2.0",
       id,
-      method: 'tools/call',
+      method: "tools/call",
       params: {
         name,
         arguments: args,
@@ -121,15 +131,18 @@ class McpClient {
     return new Promise((resolve, reject) => {
       this.pendingRequests.set(id, {
         resolve: (result: unknown) => {
-          const mcpResult = result as McpResponse['result'];
+          const mcpResult = result as McpResponse["result"];
           if (mcpResult?.isError) {
-            const errorText = mcpResult.content?.[0]?.text || 'Unknown error';
+            const errorText = mcpResult.content?.[0]?.text || "Unknown error";
             reject(new Error(errorText));
           } else {
-            const text = mcpResult?.content?.[0]?.text || '{}';
+            const text = mcpResult?.content?.[0]?.text || "{}";
             try {
-              resolve(JSON.parse(text) as T);
+              const parsed = JSON.parse(text) as T;
+              console.log("[MCP] Tool response:", name, parsed);
+              resolve(parsed);
             } catch {
+              console.log("[MCP] Tool response (raw):", name, text);
               resolve(text as T);
             }
           }
@@ -137,9 +150,10 @@ class McpClient {
         reject,
       });
 
+      console.log("[MCP] Tool request:", name, args);
       fetch(`/messages?sessionId=${this.sessionId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(request),
       }).catch(reject);
     });
@@ -160,13 +174,14 @@ export const api = {
     equipment?: string[];
     goal?: string;
     notes?: string;
+    instructorIds?: string[];
     token?: string;
-  }) => mcpClient.callTool('course.upsert', data),
+  }) => mcpClient.callTool("course.upsert", data),
 
-  courseGet: (id: string) => mcpClient.callTool('course.get', { id }),
+  courseGet: (id: string) => mcpClient.callTool("course.get", { id }),
 
   courseList: (limit = 50, offset = 0) =>
-    mcpClient.callTool('course.list', { limit, offset }),
+    mcpClient.callTool("course.list", { limit, offset }),
 
   // Instructor
   instructorUpsert: (data: {
@@ -178,12 +193,12 @@ export const api = {
     affiliation?: string;
     specialties?: string[];
     token?: string;
-  }) => mcpClient.callTool('instructor.upsert', data),
+  }) => mcpClient.callTool("instructor.upsert", data),
 
-  instructorGet: (id: string) => mcpClient.callTool('instructor.get', { id }),
+  instructorGet: (id: string) => mcpClient.callTool("instructor.get", { id }),
 
   instructorList: (limit = 50, offset = 0) =>
-    mcpClient.callTool('instructor.list', { limit, offset }),
+    mcpClient.callTool("instructor.list", { limit, offset }),
 
   // Lecture
   lectureUpsert: (data: {
@@ -194,15 +209,15 @@ export const api = {
     hours?: number;
     order?: number;
     token?: string;
-  }) => mcpClient.callTool('lecture.upsert', data),
+  }) => mcpClient.callTool("lecture.upsert", data),
 
-  lectureGet: (id: string) => mcpClient.callTool('lecture.get', { id }),
+  lectureGet: (id: string) => mcpClient.callTool("lecture.get", { id }),
 
   lectureList: (courseId: string, limit = 50, offset = 0) =>
-    mcpClient.callTool('lecture.list', { courseId, limit, offset }),
+    mcpClient.callTool("lecture.list", { courseId, limit, offset }),
 
   lectureDelete: (id: string, token?: string) =>
-    mcpClient.callTool('lecture.delete', { id, token }),
+    mcpClient.callTool("lecture.delete", { id, token }),
 
   // Schedule
   scheduleUpsert: (data: {
@@ -214,9 +229,9 @@ export const api = {
     audience?: string;
     remarks?: string;
     token?: string;
-  }) => mcpClient.callTool('schedule.upsert', data),
+  }) => mcpClient.callTool("schedule.upsert", data),
 
-  scheduleGet: (id: string) => mcpClient.callTool('schedule.get', { id }),
+  scheduleGet: (id: string) => mcpClient.callTool("schedule.get", { id }),
 
   // Template
   templateCreate: (data: {
@@ -224,45 +239,91 @@ export const api = {
     html: string;
     css: string;
     token?: string;
-  }) => mcpClient.callTool('template.create', data),
+  }) => mcpClient.callTool("template.create", data),
 
-  templateGet: (id: string) => mcpClient.callTool('template.get', { id }),
+  templateGet: (id: string) => mcpClient.callTool("template.get", { id }),
 
   templateList: (page = 1, pageSize = 20) =>
-    mcpClient.callTool('template.list', { page, pageSize }),
+    mcpClient.callTool("template.list", { page, pageSize }),
 
-  templatePreviewHtml: (html: string, css: string, data: Record<string, unknown>) =>
-    mcpClient.callTool('template.previewHtml', { html, css, data }),
+  templatePreviewHtml: (
+    html: string,
+    css: string,
+    data: Record<string, unknown>,
+  ) => mcpClient.callTool("template.previewHtml", { html, css, data }),
 
   // Render
   renderCoursePdf: (templateId: string, courseId: string) =>
-    mcpClient.callTool('render.coursePdf', { templateId, courseId }),
+    mcpClient.callTool("render.coursePdf", { templateId, courseId }),
 
   renderSchedulePdf: (templateId: string, scheduleId: string) =>
-    mcpClient.callTool('render.schedulePdf', { templateId, scheduleId }),
+    mcpClient.callTool("render.schedulePdf", { templateId, scheduleId }),
 
   // Test
-  testEcho: (message: string) => mcpClient.callTool('test.echo', { message }),
+  testEcho: (message: string) => mcpClient.callTool("test.echo", { message }),
 
   // User Authentication
-  userRegister: (data: { email: string; password: string; name: string }) =>
-    mcpClient.callTool('user.register', data),
+  userRegister: (data: {
+    email: string;
+    password: string;
+    name: string;
+    isInstructorRequested?: boolean;
+  }) => mcpClient.callTool("user.register", data),
 
   userLogin: (data: { email: string; password: string }) =>
-    mcpClient.callTool('user.login', data),
+    mcpClient.callTool("user.login", data),
 
-  userMe: (token: string) =>
-    mcpClient.callTool('user.me', { token }),
+  userMe: (token: string) => mcpClient.callTool("user.me", { token }),
 
-  userUpdate: (data: { token: string; name?: string; currentPassword?: string; newPassword?: string }) =>
-    mcpClient.callTool('user.update', data),
+  userGet: (token: string, userId: string) =>
+    mcpClient.callTool("user.get", { token, userId }),
+
+  userUpdate: (data: {
+    token: string;
+    name?: string;
+    currentPassword?: string;
+    newPassword?: string;
+  }) => mcpClient.callTool("user.update", data),
 
   userDelete: (data: { token: string; password: string }) =>
-    mcpClient.callTool('user.delete', data),
+    mcpClient.callTool("user.delete", data),
 
   userList: (token: string, limit = 50, offset = 0) =>
-    mcpClient.callTool('user.list', { token, limit, offset }),
+    mcpClient.callTool("user.list", { token, limit, offset }),
 
-  userUpdateRole: (data: { token: string; userId: string; role: 'admin' | 'editor' | 'viewer' }) =>
-    mcpClient.callTool('user.updateRole', data),
-};
+  userUpdateRole: (data: {
+    token: string;
+    userId: string;
+    role: "admin" | "operator" | "editor" | "instructor" | "viewer" | "guest";
+  }) => mcpClient.callTool("user.updateRole", data),
+
+  requestInstructor: (data: {
+    token: string;
+    displayName?: string;
+    title?: string;
+    bio?: string;
+    phone?: string;
+    website?: string;
+    links?: any;
+  }) => mcpClient.callTool("user.requestInstructor", data),
+
+  approveInstructor: (data: { token: string; userId: string }) =>
+    mcpClient.callTool("user.approveInstructor", data),
+
+  updateInstructorProfile: (data: {
+    token: string;
+    displayName?: string;
+    title?: string;
+    bio?: string;
+    phone?: string;
+    website?: string;
+    links?: any;
+  }) => mcpClient.callTool("user.updateInstructorProfile", data),
+
+  userUpdateByAdmin: (data: {
+    token: string;
+    userId: string;
+    name?: string;
+    role?: "admin" | "operator" | "editor" | "instructor" | "viewer" | "guest";
+    isActive?: boolean;
+  }) => mcpClient.callTool("user.updateByAdmin", data),};

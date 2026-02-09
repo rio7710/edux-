@@ -1,52 +1,60 @@
-import { z } from 'zod';
-import { prisma } from '../services/prisma.js';
-import { verifyToken } from '../services/jwt.js';
+import { z } from "zod";
+import { verifyToken } from "../services/jwt.js";
+import { prisma } from "../services/prisma.js";
 
 // createdBy ID를 사용자 이름으로 변환하는 헬퍼 함수
 async function resolveCreatorNames<T extends { createdBy?: string | null }>(
-  items: T[]
+  items: T[],
 ): Promise<(T & { createdBy: string })[]> {
-  const creatorIds = [...new Set(items.map(i => i.createdBy).filter(Boolean))] as string[];
+  const creatorIds = [
+    ...new Set(items.map((i) => i.createdBy).filter(Boolean)),
+  ] as string[];
   if (creatorIds.length === 0) {
-    return items.map(i => ({ ...i, createdBy: i.createdBy || '-' }));
+    return items.map((i) => ({ ...i, createdBy: i.createdBy || "-" }));
   }
 
   const users = await prisma.user.findMany({
     where: { id: { in: creatorIds } },
     select: { id: true, name: true },
   });
-  const userMap = new Map(users.map(u => [u.id, u.name]));
+  const userMap = new Map(users.map((u) => [u.id, u.name]));
 
-  return items.map(i => ({
+  return items.map((i) => ({
     ...i,
-    createdBy: i.createdBy ? (userMap.get(i.createdBy) || i.createdBy) : '-',
+    createdBy: i.createdBy ? userMap.get(i.createdBy) || i.createdBy : "-",
   }));
 }
 
 // 스키마 정의
 export const lectureUpsertSchema = {
-  id: z.string().optional().describe('없으면 새로 생성'),
-  courseId: z.string().describe('코스 ID'),
-  title: z.string().describe('강의 제목'),
-  description: z.string().optional(),
-  hours: z.number().min(0).optional(),
-  order: z.number().int().min(0).optional(),
-  token: z.string().optional().describe('인증 토큰 (등록자 추적용)'),
+  id: z.string().optional().describe("없으면 새로 생성"),
+  courseId: z.string().describe("코스 ID"),
+  title: z.string().describe("강의 제목"),
+  description: z.string().optional().nullable(),
+  hours: z.number().min(0).optional().nullable(),
+  order: z.number().int().min(0).optional().nullable(),
+  token: z.string().optional().describe("인증 토큰 (등록자 추적용)"),
 };
 
 export const lectureGetSchema = {
-  id: z.string().describe('강의 ID'),
+  id: z.string().describe("강의 ID"),
 };
 
 export const lectureListSchema = {
-  courseId: z.string().describe('코스 ID'),
-  limit: z.number().int().min(1).max(100).optional().describe('최대 조회 개수 (기본 50)'),
-  offset: z.number().int().min(0).optional().describe('오프셋 (기본 0)'),
+  courseId: z.string().describe("코스 ID"),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(100)
+    .optional()
+    .describe("최대 조회 개수 (기본 50)"),
+  offset: z.number().int().min(0).optional().describe("오프셋 (기본 0)"),
 };
 
 export const lectureDeleteSchema = {
-  id: z.string().describe('강의 ID'),
-  token: z.string().optional().describe('인증 토큰'),
+  id: z.string().describe("강의 ID"),
+  token: z.string().optional().describe("인증 토큰"),
 };
 
 // 핸들러 정의
@@ -54,9 +62,9 @@ export async function lectureUpsertHandler(args: {
   id?: string;
   courseId: string;
   title: string;
-  description?: string;
-  hours?: number;
-  order?: number;
+  description?: string | null;
+  hours?: number | null;
+  order?: number | null;
   token?: string;
 }) {
   try {
@@ -66,7 +74,9 @@ export async function lectureUpsertHandler(args: {
     });
     if (!course) {
       return {
-        content: [{ type: 'text' as const, text: `Course not found: ${args.courseId}` }],
+        content: [
+          { type: "text" as const, text: `Course not found: ${args.courseId}` },
+        ],
         isError: true,
       };
     }
@@ -90,26 +100,37 @@ export async function lectureUpsertHandler(args: {
         id: lectureId,
         courseId: args.courseId,
         title: args.title,
-        description: args.description,
-        hours: args.hours,
-        order: args.order ?? 0,
+        description: args.description ?? undefined,
+        hours: args.hours ?? undefined,
+        order: args.order ?? undefined,
         createdBy,
       },
       update: {
         title: args.title,
-        description: args.description,
-        hours: args.hours,
-        order: args.order,
+        description: args.description ?? undefined,
+        hours: args.hours ?? undefined,
+        order: args.order ?? undefined,
       },
     });
 
     return {
-      content: [{ type: 'text' as const, text: JSON.stringify({ id: lecture.id, courseId: lecture.courseId, title: lecture.title }) }],
+      content: [
+        {
+          type: "text" as const,
+          text: JSON.stringify({
+            id: lecture.id,
+            courseId: lecture.courseId,
+            title: lecture.title,
+          }),
+        },
+      ],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
+    const message = error instanceof Error ? error.message : "Unknown error";
     return {
-      content: [{ type: 'text' as const, text: `Failed to upsert lecture: ${message}` }],
+      content: [
+        { type: "text" as const, text: `Failed to upsert lecture: ${message}` },
+      ],
       isError: true,
     };
   }
@@ -124,7 +145,9 @@ export async function lectureGetHandler(args: { id: string }) {
 
     if (!lecture) {
       return {
-        content: [{ type: 'text' as const, text: `Lecture not found: ${args.id}` }],
+        content: [
+          { type: "text" as const, text: `Lecture not found: ${args.id}` },
+        ],
         isError: true,
       };
     }
@@ -132,18 +155,26 @@ export async function lectureGetHandler(args: { id: string }) {
     const [enrichedLecture] = await resolveCreatorNames([lecture]);
 
     return {
-      content: [{ type: 'text' as const, text: JSON.stringify(enrichedLecture) }],
+      content: [
+        { type: "text" as const, text: JSON.stringify(enrichedLecture) },
+      ],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
+    const message = error instanceof Error ? error.message : "Unknown error";
     return {
-      content: [{ type: 'text' as const, text: `Failed to get lecture: ${message}` }],
+      content: [
+        { type: "text" as const, text: `Failed to get lecture: ${message}` },
+      ],
       isError: true,
     };
   }
 }
 
-export async function lectureListHandler(args: { courseId: string; limit?: number; offset?: number }) {
+export async function lectureListHandler(args: {
+  courseId: string;
+  limit?: number;
+  offset?: number;
+}) {
   try {
     const limit = args.limit || 50;
     const offset = args.offset || 0;
@@ -151,28 +182,40 @@ export async function lectureListHandler(args: { courseId: string; limit?: numbe
     const [rawLectures, total] = await Promise.all([
       prisma.lecture.findMany({
         where: { courseId: args.courseId, deletedAt: null },
-        orderBy: { order: 'asc' },
+        orderBy: { order: "asc" },
         take: limit,
         skip: offset,
       }),
-      prisma.lecture.count({ where: { courseId: args.courseId, deletedAt: null } }),
+      prisma.lecture.count({
+        where: { courseId: args.courseId, deletedAt: null },
+      }),
     ]);
 
     const lectures = await resolveCreatorNames(rawLectures);
 
     return {
-      content: [{ type: 'text' as const, text: JSON.stringify({ lectures, total, limit, offset }) }],
+      content: [
+        {
+          type: "text" as const,
+          text: JSON.stringify({ lectures, total, limit, offset }),
+        },
+      ],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
+    const message = error instanceof Error ? error.message : "Unknown error";
     return {
-      content: [{ type: 'text' as const, text: `Failed to list lectures: ${message}` }],
+      content: [
+        { type: "text" as const, text: `Failed to list lectures: ${message}` },
+      ],
       isError: true,
     };
   }
 }
 
-export async function lectureDeleteHandler(args: { id: string; token?: string }) {
+export async function lectureDeleteHandler(args: {
+  id: string;
+  token?: string;
+}) {
   try {
     const lecture = await prisma.lecture.findUnique({
       where: { id: args.id, deletedAt: null },
@@ -180,7 +223,9 @@ export async function lectureDeleteHandler(args: { id: string; token?: string })
 
     if (!lecture) {
       return {
-        content: [{ type: 'text' as const, text: `Lecture not found: ${args.id}` }],
+        content: [
+          { type: "text" as const, text: `Lecture not found: ${args.id}` },
+        ],
         isError: true,
       };
     }
@@ -191,12 +236,19 @@ export async function lectureDeleteHandler(args: { id: string; token?: string })
     });
 
     return {
-      content: [{ type: 'text' as const, text: JSON.stringify({ id: args.id, deleted: true }) }],
+      content: [
+        {
+          type: "text" as const,
+          text: JSON.stringify({ id: args.id, deleted: true }),
+        },
+      ],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
+    const message = error instanceof Error ? error.message : "Unknown error";
     return {
-      content: [{ type: 'text' as const, text: `Failed to delete lecture: ${message}` }],
+      content: [
+        { type: "text" as const, text: `Failed to delete lecture: ${message}` },
+      ],
       isError: true,
     };
   }

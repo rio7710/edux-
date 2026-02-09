@@ -35,6 +35,8 @@ import {
   scheduleUpsertHandler,
   scheduleGetSchema,
   scheduleGetHandler,
+  scheduleListSchema,
+  scheduleListHandler,
 } from './tools/schedule.js';
 import {
   templateCreateSchema,
@@ -63,6 +65,8 @@ import {
   userLoginHandler,
   userMeSchema,
   userMeHandler,
+  userGetSchema,
+  userGetHandler,
   userUpdateSchema,
   userUpdateHandler,
   userDeleteSchema,
@@ -71,6 +75,14 @@ import {
   userListHandler,
   userUpdateRoleSchema,
   userUpdateRoleHandler,
+  userUpdateByAdminSchema,
+  userUpdateByAdminHandler,
+  userRequestInstructorSchema,
+  requestInstructorHandler,
+  userApproveInstructorSchema,
+  approveInstructorHandler,
+  userUpdateInstructorProfileSchema,
+  updateInstructorProfileHandler,
 } from './tools/user.js';
 
 const PORT = process.env.PORT || 7777;
@@ -109,6 +121,7 @@ function createMcpServer(): McpServer {
   server.tool('lecture.delete', '강의 삭제 (소프트 삭제)', lectureDeleteSchema, async (args) => lectureDeleteHandler(args));
   server.tool('schedule.upsert', '수업 일정 생성 또는 수정', scheduleUpsertSchema, async (args) => scheduleUpsertHandler(args));
   server.tool('schedule.get', '일정 단건 조회', scheduleGetSchema, async (args) => scheduleGetHandler(args));
+  server.tool('schedule.list', '일정 목록 조회', scheduleListSchema, async (args) => scheduleListHandler(args));
   server.tool('template.create', '새 템플릿 생성', templateCreateSchema, async (args) => templateCreateHandler(args));
   server.tool('template.get', '템플릿 단건 조회', templateGetSchema, async (args) => templateGetHandler(args));
   server.tool('template.list', '템플릿 목록 조회', templateListSchema, async (args) => templateListHandler(args));
@@ -121,10 +134,15 @@ function createMcpServer(): McpServer {
   server.tool('user.register', '회원가입', userRegisterSchema, async (args) => userRegisterHandler(args));
   server.tool('user.login', '로그인 (토큰 발급)', userLoginSchema, async (args) => userLoginHandler(args));
   server.tool('user.me', '내 정보 조회', userMeSchema, async (args) => userMeHandler(args));
+  server.tool('user.get', '사용자 정보 조회 (관리자)', userGetSchema, async (args) => userGetHandler(args));
   server.tool('user.update', '내 정보 수정', userUpdateSchema, async (args) => userUpdateHandler(args));
   server.tool('user.delete', '회원 탈퇴 (비활성화)', userDeleteSchema, async (args) => userDeleteHandler(args));
   server.tool('user.list', '회원 목록 조회 (관리자)', userListSchema, async (args) => userListHandler(args));
   server.tool('user.updateRole', '회원 역할 변경 (관리자)', userUpdateRoleSchema, async (args) => userUpdateRoleHandler(args));
+  server.tool('user.updateByAdmin', '사용자 정보 수정 (관리자)', userUpdateByAdminSchema, async (args) => userUpdateByAdminHandler(args));
+  server.tool('user.requestInstructor', '강사 신청/프로파일 제출', userRequestInstructorSchema, async (args) => requestInstructorHandler(args));
+  server.tool('user.approveInstructor', '강사 승인 (관리자)', userApproveInstructorSchema, async (args) => approveInstructorHandler(args));
+  server.tool('user.updateInstructorProfile', '내 강사 프로파일 수정', userUpdateInstructorProfileSchema, async (args) => updateInstructorProfileHandler(args));
 
   return server;
 }

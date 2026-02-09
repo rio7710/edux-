@@ -1,6 +1,4 @@
 import { Queue } from 'bullmq';
-// import { prisma } from './prisma.js'; // Not needed in queue.ts
-// import puppeteer from 'puppeteer'; // Not needed in queue.ts
 
 // Define queue name
 export const RENDER_QUEUE_NAME = 'renderPdfQueue';
@@ -9,12 +7,63 @@ export const RENDER_QUEUE_NAME = 'renderPdfQueue';
 const connection = {
   host: process.env.REDIS_HOST || 'localhost',
   port: parseInt(process.env.REDIS_PORT || '6379', 10),
-  password: process.env.REDIS_PASSWORD, // Optional
+  password: process.env.REDIS_PASSWORD,
 };
 
-// Create a new queue
-export const renderQueue = new Queue(RENDER_QUEUE_NAME, { connection });
+// Lazy-initialized queue (created on first use)
+let _renderQueue: Queue | null = null;
+let _redisAvailable: boolean | null = null;
 
-// Removed worker-related commented code as worker is now in src/workers/pdfWorker.ts
+/**
+ * Get the render queue instance.
+ * Returns null if Redis is not available.
+ */
+export function getRenderQueue(): Queue | null {
+  if (_redisAvailable === false) return null;
 
-console.log(`BullMQ Queue '${RENDER_QUEUE_NAME}' initialized.`);
+  if (!_renderQueue) {
+    try {
+      _renderQueue = new Queue(RENDER_QUEUE_NAME, {
+        connection,
+      });
+
+      // Listen for error to mark Redis as unavailable
+      _renderQueue.on('error', (err) => {
+        console.warn(`[BullMQ] Queue error: ${err.message}. PDF rendering disabled.`);
+        _redisAvailable = false;
+      });
+
+      _redisAvailable = true;
+      console.log(`[BullMQ] Queue '${RENDER_QUEUE_NAME}' initialized.`);
+    } catch {
+      console.warn('[BullMQ] Failed to create queue. Redis not available. PDF rendering disabled.');
+      _redisAvailable = false;
+      return null;
+    }
+  }
+
+  return _renderQueue;
+}
+
+/**
+ * Check if Redis/BullMQ is available.
+ */
+export function isQueueAvailable(): boolean {
+  return _redisAvailable === true && _renderQueue !== null;
+}
+
+// For backward compatibility - lazy getter
+export const renderQueue = new Proxy({} as Queue, {
+  get(_target, prop) {
+    const queue = getRenderQueue();
+    if (!queue) {
+      if (prop === 'add') {
+        return () => {
+          throw new Error('Redis is not available. PDF rendering is disabled. Start Redis to enable this feature.');
+        };
+      }
+      return undefined;
+    }
+    return (queue as unknown as Record<string | symbol, unknown>)[prop];
+  },
+});

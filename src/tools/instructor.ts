@@ -189,6 +189,9 @@ export async function instructorGetHandler(args: { id: string }) {
       where: { id: args.id, deletedAt: null },
       include: {
         Schedules: true, // Instructors can have many schedules
+        CourseInstructors: {
+          include: { Course: true },
+        },
       },
     });
 
@@ -211,6 +214,18 @@ export async function instructorGetHandler(args: { id: string }) {
       enrichedInstructor.Schedules = await resolveCreatorNames(
         enrichedInstructor.Schedules,
       );
+    }
+
+    if (
+      (enrichedInstructor as any).CourseInstructors &&
+      (enrichedInstructor as any).CourseInstructors.length > 0
+    ) {
+      const courses = (enrichedInstructor as any).CourseInstructors
+        .map((ci: any) => ci.Course)
+        .filter(Boolean);
+      (enrichedInstructor as any).Courses = courses;
+    } else {
+      (enrichedInstructor as any).Courses = [];
     }
 
     return {
