@@ -1,13 +1,35 @@
 import { z } from 'zod';
 import { prisma } from '../services/prisma.js';
 import Handlebars from 'handlebars';
+import { verifyToken } from '../services/jwt.js';
+
+// createdBy ID를 사용자 이름으로 변환하는 헬퍼 함수
+async function resolveCreatorNames<T extends { createdBy?: string | null }>(
+  items: T[]
+): Promise<(T & { createdBy: string })[]> {
+  const creatorIds = [...new Set(items.map(i => i.createdBy).filter(Boolean))] as string[];
+  if (creatorIds.length === 0) {
+    return items.map(i => ({ ...i, createdBy: i.createdBy || '-' }));
+  }
+
+  const users = await prisma.user.findMany({
+    where: { id: { in: creatorIds } },
+    select: { id: true, name: true },
+  });
+  const userMap = new Map(users.map(u => [u.id, u.name]));
+
+  return items.map(i => ({
+    ...i,
+    createdBy: i.createdBy ? (userMap.get(i.createdBy) || i.createdBy) : '-',
+  }));
+}
 
 // 스키마 정의
 export const templateCreateSchema = {
   name: z.string().describe('템플릿 이름'),
   html: z.string().describe('Handlebars 템플릿 HTML'),
   css: z.string().describe('템플릿 CSS'),
-  createdBy: z.string().optional().describe('템플릿 생성자'),
+  token: z.string().optional().describe('인증 토큰 (등록자 추적용)'),
 };
 
 export const templateGetSchema = {
@@ -30,15 +52,26 @@ export async function templateCreateHandler(args: {
   name: string;
   html: string;
   css: string;
-  createdBy?: string;
+  token?: string;
 }) {
   try {
+    // 토큰에서 사용자 ID 추출
+    let createdBy: string | undefined;
+    if (args.token) {
+      try {
+        const payload = verifyToken(args.token);
+        createdBy = payload.userId;
+      } catch {
+        // 토큰 검증 실패시 무시
+      }
+    }
+
     const template = await prisma.template.create({
       data: {
         name: args.name,
         html: args.html,
         css: args.css,
-        createdBy: args.createdBy,
+        createdBy,
         Versions: {
           create: {
             version: 1,
@@ -78,8 +111,10 @@ export async function templateGetHandler(args: { id: string }) {
       };
     }
 
+    const [enrichedTemplate] = await resolveCreatorNames([template]);
+
     return {
-      content: [{ type: 'text' as const, text: JSON.stringify(template) }],
+      content: [{ type: 'text' as const, text: JSON.stringify(enrichedTemplate) }],
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
@@ -95,7 +130,7 @@ export async function templateListHandler(args: { page: number; pageSize: number
     const skip = (args.page - 1) * args.pageSize;
     const take = args.pageSize;
 
-    const [templates, total] = await prisma.$transaction([
+    const [rawTemplates, total] = await prisma.$transaction([
       prisma.template.findMany({
         skip,
         take,
@@ -104,8 +139,10 @@ export async function templateListHandler(args: { page: number; pageSize: number
       prisma.template.count(),
     ]);
 
+    const items = await resolveCreatorNames(rawTemplates);
+
     return {
-      content: [{ type: 'text' as const, text: JSON.stringify({ items: templates, total }) }],
+      content: [{ type: 'text' as const, text: JSON.stringify({ items, total }) }],
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';

@@ -160,6 +160,7 @@ export const api = {
     equipment?: string[];
     goal?: string;
     notes?: string;
+    token?: string;
   }) => mcpClient.callTool('course.upsert', data),
 
   courseGet: (id: string) => mcpClient.callTool('course.get', { id }),
@@ -176,6 +177,7 @@ export const api = {
     phone?: string;
     affiliation?: string;
     specialties?: string[];
+    token?: string;
   }) => mcpClient.callTool('instructor.upsert', data),
 
   instructorGet: (id: string) => mcpClient.callTool('instructor.get', { id }),
@@ -183,13 +185,24 @@ export const api = {
   instructorList: (limit = 50, offset = 0) =>
     mcpClient.callTool('instructor.list', { limit, offset }),
 
-  // Module
-  moduleBatchSet: (courseId: string, modules: Array<{
+  // Lecture
+  lectureUpsert: (data: {
+    id?: string;
+    courseId: string;
     title: string;
-    details?: string;
+    description?: string;
     hours?: number;
     order?: number;
-  }>) => mcpClient.callTool('module.batchSet', { courseId, modules }),
+    token?: string;
+  }) => mcpClient.callTool('lecture.upsert', data),
+
+  lectureGet: (id: string) => mcpClient.callTool('lecture.get', { id }),
+
+  lectureList: (courseId: string, limit = 50, offset = 0) =>
+    mcpClient.callTool('lecture.list', { courseId, limit, offset }),
+
+  lectureDelete: (id: string, token?: string) =>
+    mcpClient.callTool('lecture.delete', { id, token }),
 
   // Schedule
   scheduleUpsert: (data: {
@@ -200,6 +213,7 @@ export const api = {
     location?: string;
     audience?: string;
     remarks?: string;
+    token?: string;
   }) => mcpClient.callTool('schedule.upsert', data),
 
   scheduleGet: (id: string) => mcpClient.callTool('schedule.get', { id }),
@@ -209,7 +223,7 @@ export const api = {
     name: string;
     html: string;
     css: string;
-    createdBy?: string;
+    token?: string;
   }) => mcpClient.callTool('template.create', data),
 
   templateGet: (id: string) => mcpClient.callTool('template.get', { id }),
@@ -229,4 +243,26 @@ export const api = {
 
   // Test
   testEcho: (message: string) => mcpClient.callTool('test.echo', { message }),
+
+  // User Authentication
+  userRegister: (data: { email: string; password: string; name: string }) =>
+    mcpClient.callTool('user.register', data),
+
+  userLogin: (data: { email: string; password: string }) =>
+    mcpClient.callTool('user.login', data),
+
+  userMe: (token: string) =>
+    mcpClient.callTool('user.me', { token }),
+
+  userUpdate: (data: { token: string; name?: string; currentPassword?: string; newPassword?: string }) =>
+    mcpClient.callTool('user.update', data),
+
+  userDelete: (data: { token: string; password: string }) =>
+    mcpClient.callTool('user.delete', data),
+
+  userList: (token: string, limit = 50, offset = 0) =>
+    mcpClient.callTool('user.list', { token, limit, offset }),
+
+  userUpdateRole: (data: { token: string; userId: string; role: 'admin' | 'editor' | 'viewer' }) =>
+    mcpClient.callTool('user.updateRole', data),
 };

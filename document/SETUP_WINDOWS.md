@@ -6,17 +6,41 @@
 - **Docker Desktop** (로컬 PostgreSQL + Redis 용)
 - **VS Code**
 
+## 빠른 실행 (이미 설치된 환경)
+
+```bash
+# 1. Docker 컨테이너 시작
+docker start edux-postgres
+
+# 2. 백엔드 빌드 & 실행
+cd d:\workSpace\edux
+npm run build && node dist/transport.js
+
+# 3. 프론트엔드 실행 (별도 터미널)
+cd d:\workSpace\edux\ui
+npm run dev
+```
+
+- 백엔드: <http://localhost:7777>
+- 프론트엔드: <http://localhost:5173>
+
+---
+
+## 최초 설치
+
 ## 1. PostgreSQL 실행 (Docker)
 
 ```bash
-docker run --name edux-pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_USER=postgres -e POSTGRES_DB=hrdb -p 5432:5432 -d postgres:16
+docker run -d --name edux-postgres -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=hrdb -p 5432:5432 postgres:16-alpine
 ```
 
-## 2. Redis 실행 (Docker, PDF 렌더 큐용)
+## 2. Redis 실행 (Docker, PDF 렌더 큐용 - 선택)
 
 ```bash
-docker run --name edux-redis -p 6379:6379 -d redis:7-alpine
+docker run -d --name edux-redis -p 6379:6379 redis:7-alpine
 ```
+
+> Redis가 없어도 코스/강사/템플릿/회원 관리 기능은 정상 동작합니다. PDF 렌더링 큐만 영향받습니다.
 
 ## 3. 환경 변수
 

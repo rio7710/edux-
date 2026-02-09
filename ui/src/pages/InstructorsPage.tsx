@@ -8,11 +8,11 @@ import {
   message,
   Space,
   Tag,
-  Spin,
 } from 'antd';
 import { PlusOutlined, EditOutlined, EyeOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useMutation } from '@tanstack/react-query';
 import { api, mcpClient } from '../api/mcpClient';
+import { useAuth } from '../contexts/AuthContext';
 
 interface Instructor {
   id: string;
@@ -22,6 +22,7 @@ interface Instructor {
   phone?: string;
   affiliation?: string;
   specialties?: string[];
+  createdBy?: string;
 }
 
 export default function InstructorsPage() {
@@ -31,6 +32,7 @@ export default function InstructorsPage() {
   const [form] = Form.useForm();
   const [instructors, setInstructors] = useState<Instructor[]>([]);
   const [loading, setLoading] = useState(true);
+  const { accessToken } = useAuth();
 
   const loadInstructors = async () => {
     try {
@@ -66,7 +68,8 @@ export default function InstructorsPage() {
   };
 
   const createMutation = useMutation({
-    mutationFn: (data: Omit<Instructor, 'id'> & { id?: string }) => api.instructorUpsert(data),
+    mutationFn: (data: Omit<Instructor, 'id'> & { id?: string }) =>
+      api.instructorUpsert({ ...data, token: accessToken || undefined }),
     onSuccess: () => {
       message.success('강사가 정상적으로 등록되었습니다.');
       setIsModalOpen(false);
@@ -99,12 +102,20 @@ export default function InstructorsPage() {
   });
 
   const handleCreate = () => {
+    if (!accessToken) {
+      message.warning('로그인 후 이용해주세요.');
+      return;
+    }
     setEditingInstructor(null);
     form.resetFields();
     setIsModalOpen(true);
   };
 
   const handleEdit = (instructor: Instructor) => {
+    if (!accessToken) {
+      message.warning('로그인 후 이용해주세요.');
+      return;
+    }
     setEditingInstructor(instructor);
     form.setFieldsValue({
       ...instructor,
@@ -166,6 +177,13 @@ export default function InstructorsPage() {
           </>
         );
       },
+    },
+    {
+      title: '등록자',
+      dataIndex: 'createdBy',
+      key: 'createdBy',
+      width: 100,
+      render: (createdBy: string) => createdBy || '-',
     },
     {
       title: '액션',
@@ -283,6 +301,7 @@ export default function InstructorsPage() {
             <p><strong>전화번호:</strong> {viewInstructor.phone || '-'}</p>
             <p><strong>소속:</strong> {viewInstructor.affiliation || '-'}</p>
             <p><strong>전문분야:</strong> {viewInstructor.specialties?.join(', ') || '-'}</p>
+            <p><strong>등록자:</strong> {viewInstructor.createdBy || '-'}</p>
           </div>
         )}
       </Modal>

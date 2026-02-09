@@ -12,6 +12,7 @@ import {
 import { PlusOutlined, EyeOutlined } from '@ant-design/icons';
 import { useMutation } from '@tanstack/react-query';
 import { api } from '../api/mcpClient';
+import { useAuth } from '../contexts/AuthContext';
 
 interface Template {
   id: string;
@@ -19,6 +20,7 @@ interface Template {
   html: string;
   css: string;
   createdAt?: string;
+  createdBy?: string;
 }
 
 const defaultHtml = `<div class="course-plan">
@@ -63,9 +65,11 @@ export default function TemplatesPage() {
   const [previewHtml, setPreviewHtml] = useState('');
   const [form] = Form.useForm();
   const [templates, setTemplates] = useState<Template[]>([]);
+  const { accessToken } = useAuth();
 
   const createMutation = useMutation({
-    mutationFn: (data: { name: string; html: string; css: string }) => api.templateCreate(data),
+    mutationFn: (data: { name: string; html: string; css: string }) =>
+      api.templateCreate({ ...data, token: accessToken || undefined }),
     onSuccess: (result: unknown) => {
       const templateResult = result as { id: string; name: string };
       message.success('템플릿이 저장되었습니다');
@@ -106,6 +110,10 @@ export default function TemplatesPage() {
   }, []);
 
   const handleCreate = () => {
+    if (!accessToken) {
+      message.warning('로그인 후 이용해주세요.');
+      return;
+    }
     form.setFieldsValue({
       name: '',
       html: defaultHtml,
@@ -116,6 +124,10 @@ export default function TemplatesPage() {
   };
 
   const handleSubmit = async () => {
+    if (!accessToken) {
+      message.warning('로그인 후 이용해주세요.');
+      return;
+    }
     try {
       const values = await form.validateFields();
       createMutation.mutate(values);
@@ -163,6 +175,13 @@ export default function TemplatesPage() {
       key: 'createdAt',
       width: 180,
       render: (date: string) => date ? new Date(date).toLocaleString('ko-KR') : '-',
+    },
+    {
+      title: '등록자',
+      dataIndex: 'createdBy',
+      key: 'createdBy',
+      width: 100,
+      render: (createdBy: string) => createdBy || '-',
     },
     {
       title: '액션',

@@ -40,7 +40,7 @@ const pdfWorker = new Worker(
       if (courseId) {
         data.course = await prisma.course.findUnique({
           where: { id: courseId, deletedAt: null },
-          include: { Modules: true, Schedules: true },
+          include: { Lectures: { where: { deletedAt: null }, orderBy: { order: 'asc' } }, Schedules: true },
         });
         if (!data.course) throw new Error(`Course not found: ${courseId}`);
         pdfFileName = `course-${courseId}.pdf`;

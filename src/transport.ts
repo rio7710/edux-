@@ -21,9 +21,15 @@ import {
   instructorListHandler,
 } from './tools/instructor.js';
 import {
-  moduleBatchSetSchema,
-  moduleBatchSetHandler,
-} from './tools/module.js';
+  lectureUpsertSchema,
+  lectureUpsertHandler,
+  lectureGetSchema,
+  lectureGetHandler,
+  lectureListSchema,
+  lectureListHandler,
+  lectureDeleteSchema,
+  lectureDeleteHandler,
+} from './tools/lecture.js';
 import {
   scheduleUpsertSchema,
   scheduleUpsertHandler,
@@ -50,6 +56,22 @@ import {
   testEchoSchema,
   testEchoHandler,
 } from './tools/test.js';
+import {
+  userRegisterSchema,
+  userRegisterHandler,
+  userLoginSchema,
+  userLoginHandler,
+  userMeSchema,
+  userMeHandler,
+  userUpdateSchema,
+  userUpdateHandler,
+  userDeleteSchema,
+  userDeleteHandler,
+  userListSchema,
+  userListHandler,
+  userUpdateRoleSchema,
+  userUpdateRoleHandler,
+} from './tools/user.js';
 
 const PORT = process.env.PORT || 7777;
 const app = express();
@@ -81,7 +103,10 @@ function createMcpServer(): McpServer {
   server.tool('instructor.upsert', '강사 생성 또는 수정', instructorUpsertSchema, async (args) => instructorUpsertHandler(args));
   server.tool('instructor.get', '강사 단건 조회', instructorGetSchema, async (args) => instructorGetHandler(args));
   server.tool('instructor.list', '강사 목록 조회', instructorListSchema, async (args) => instructorListHandler(args));
-  server.tool('module.batchSet', '코스의 모듈 목록을 일괄 교체', moduleBatchSetSchema, async (args) => moduleBatchSetHandler(args));
+  server.tool('lecture.upsert', '강의 생성 또는 수정', lectureUpsertSchema, async (args) => lectureUpsertHandler(args));
+  server.tool('lecture.get', '강의 단건 조회', lectureGetSchema, async (args) => lectureGetHandler(args));
+  server.tool('lecture.list', '코스별 강의 목록 조회', lectureListSchema, async (args) => lectureListHandler(args));
+  server.tool('lecture.delete', '강의 삭제 (소프트 삭제)', lectureDeleteSchema, async (args) => lectureDeleteHandler(args));
   server.tool('schedule.upsert', '수업 일정 생성 또는 수정', scheduleUpsertSchema, async (args) => scheduleUpsertHandler(args));
   server.tool('schedule.get', '일정 단건 조회', scheduleGetSchema, async (args) => scheduleGetHandler(args));
   server.tool('template.create', '새 템플릿 생성', templateCreateSchema, async (args) => templateCreateHandler(args));
@@ -91,6 +116,15 @@ function createMcpServer(): McpServer {
   server.tool('render.coursePdf', '코스 PDF 생성', renderCoursePdfSchema, async (args) => renderCoursePdfHandler(args));
   server.tool('render.schedulePdf', '일정 PDF 생성', renderSchedulePdfSchema, async (args) => renderSchedulePdfHandler(args));
   server.tool('test.echo', '에코 테스트', testEchoSchema, async (args) => testEchoHandler(args));
+
+  // User management tools
+  server.tool('user.register', '회원가입', userRegisterSchema, async (args) => userRegisterHandler(args));
+  server.tool('user.login', '로그인 (토큰 발급)', userLoginSchema, async (args) => userLoginHandler(args));
+  server.tool('user.me', '내 정보 조회', userMeSchema, async (args) => userMeHandler(args));
+  server.tool('user.update', '내 정보 수정', userUpdateSchema, async (args) => userUpdateHandler(args));
+  server.tool('user.delete', '회원 탈퇴 (비활성화)', userDeleteSchema, async (args) => userDeleteHandler(args));
+  server.tool('user.list', '회원 목록 조회 (관리자)', userListSchema, async (args) => userListHandler(args));
+  server.tool('user.updateRole', '회원 역할 변경 (관리자)', userUpdateRoleSchema, async (args) => userUpdateRoleHandler(args));
 
   return server;
 }
