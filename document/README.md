@@ -15,6 +15,7 @@ MCP 표준 프로토콜(stdio / SSE)을 통해 **Claude Desktop**, **Claude CLI*
 - `MCP_TOOLS.md` — MCP 툴 목록 (26개), Zod 파라미터 스키마, 응답/에러 형식
 - `API_REFERENCE.md` — MCP 전송 방식, JWT 인증, 정적 파일, 프로토콜 메시지 예시
 - `TEMPLATES.md` — Handlebars 템플릿 규칙과 플레이스홀더 (Course, Lecture 데이터 주입)
+- `TEMPLATE_GUIDE.md` — 템플릿 변수 가이드 (course/instructor 데이터 키)
 - `WORKFLOW.md` — 단계별 절차(한 단계 = 한 툴 호출), 에러 처리 규칙
 
 ### 운영/정책 문서
