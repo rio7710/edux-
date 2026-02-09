@@ -46,6 +46,10 @@ export const instructorGetSchema = {
   id: z.string().describe("강사 ID"),
 };
 
+export const instructorGetByUserSchema = {
+  token: z.string().describe("액세스 토큰"),
+};
+
 export const instructorListSchema = {
   limit: z
     .number()
@@ -207,6 +211,77 @@ export async function instructorGetHandler(args: { id: string }) {
     const [enrichedInstructor] = await resolveCreatorNames([instructor]);
 
     // 스케줄들의 등록자도 이름으로 변환
+    if (
+      enrichedInstructor.Schedules &&
+      enrichedInstructor.Schedules.length > 0
+    ) {
+      enrichedInstructor.Schedules = await resolveCreatorNames(
+        enrichedInstructor.Schedules,
+      );
+    }
+
+    if (
+      (enrichedInstructor as any).CourseInstructors &&
+      (enrichedInstructor as any).CourseInstructors.length > 0
+    ) {
+      const courses = (enrichedInstructor as any).CourseInstructors
+        .map((ci: any) => ci.Course)
+        .filter(Boolean);
+      (enrichedInstructor as any).Courses = courses;
+    } else {
+      (enrichedInstructor as any).Courses = [];
+    }
+
+    return {
+      content: [
+        { type: "text" as const, text: JSON.stringify(enrichedInstructor) },
+      ],
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    return {
+      content: [
+        { type: "text" as const, text: `Failed to get instructor: ${message}` },
+      ],
+      isError: true,
+    };
+  }
+}
+
+export async function instructorGetByUserHandler(args: { token: string }) {
+  try {
+    let userId: string | undefined;
+    try {
+      const payload = verifyToken(args.token);
+      userId = payload.userId;
+    } catch {
+      return {
+        content: [{ type: "text" as const, text: "인증 실패" }],
+        isError: true,
+      };
+    }
+
+    const instructor = await prisma.instructor.findFirst({
+      where: { userId, deletedAt: null },
+      include: {
+        Schedules: true,
+        CourseInstructors: {
+          include: { Course: true },
+        },
+      },
+    });
+
+    if (!instructor) {
+      return {
+        content: [
+          { type: "text" as const, text: "연결된 강사 정보를 찾을 수 없습니다." },
+        ],
+        isError: true,
+      };
+    }
+
+    const [enrichedInstructor] = await resolveCreatorNames([instructor]);
+
     if (
       enrichedInstructor.Schedules &&
       enrichedInstructor.Schedules.length > 0

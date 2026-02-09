@@ -255,60 +255,6 @@ export default function ProfilePage() {
         </Form>
       </Card>
 
-      {/* Password Change */}
-      <Card title="비밀번호 변경" style={{ marginBottom: 24 }}>
-        <Form
-          form={passwordForm}
-          onFinish={handlePasswordUpdate}
-          layout="vertical"
-          style={{ maxWidth: 400 }}
-        >
-          <Form.Item
-            name="currentPassword"
-            label="현재 비밀번호"
-            rules={[{ required: true, message: "현재 비밀번호를 입력하세요" }]}
-          >
-            <Input.Password prefix={<LockOutlined />} />
-          </Form.Item>
-          <Form.Item
-            name="newPassword"
-            label="새 비밀번호"
-            rules={[
-              { required: true, message: "새 비밀번호를 입력하세요" },
-              { min: 8, message: "8자 이상 입력하세요" },
-            ]}
-            extra="8자 이상, 영문과 숫자를 포함해야 합니다"
-          >
-            <Input.Password prefix={<LockOutlined />} />
-          </Form.Item>
-          <Form.Item
-            name="confirmPassword"
-            label="새 비밀번호 확인"
-            dependencies={["newPassword"]}
-            rules={[
-              { required: true, message: "새 비밀번호를 다시 입력하세요" },
-              ({ getFieldValue }) => ({
-                validator(_, value) {
-                  if (!value || getFieldValue("newPassword") === value) {
-                    return Promise.resolve();
-                  }
-                  return Promise.reject(
-                    new Error("비밀번호가 일치하지 않습니다"),
-                  );
-                },
-              }),
-            ]}
-          >
-            <Input.Password prefix={<LockOutlined />} />
-          </Form.Item>
-          <Form.Item>
-            <Button type="primary" htmlType="submit" loading={passwordLoading}>
-              비밀번호 변경
-            </Button>
-          </Form.Item>
-        </Form>
-      </Card>
-
       {/* Instructor Profile Section */}
       {user.role !== "instructor" ? (
         <Card title="강사 신청" style={{ marginBottom: 24 }}>

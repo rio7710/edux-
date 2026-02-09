@@ -8,6 +8,7 @@ import {
   message,
   Space,
   Tabs,
+  Select,
 } from 'antd';
 import { PlusOutlined, EyeOutlined } from '@ant-design/icons';
 import { useMutation } from '@tanstack/react-query';
@@ -17,6 +18,7 @@ import { useAuth } from '../contexts/AuthContext';
 interface Template {
   id: string;
   name: string;
+  type?: string;
   html: string;
   css: string;
   createdAt?: string;
@@ -60,15 +62,42 @@ ul {
   line-height: 1.8;
 }`;
 
-export default function TemplatesPage() {
+type TemplatesPageProps = {
+  title?: string;
+  description?: string;
+  typeLabel?: string;
+  templateType?: string;
+  defaultHtml?: string;
+  defaultCss?: string;
+  sampleData?: Record<string, unknown>;
+};
+
+export default function TemplatesPage({
+  title = '템플릿 관리',
+  description,
+  typeLabel,
+  templateType,
+  defaultHtml: initialHtml = defaultHtml,
+  defaultCss: initialCss = defaultCss,
+  sampleData,
+}: TemplatesPageProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [previewHtml, setPreviewHtml] = useState('');
+  const [previewTargetOpen, setPreviewTargetOpen] = useState(false);
+  const [previewTargetId, setPreviewTargetId] = useState<string | undefined>();
+  const [previewTargetType, setPreviewTargetType] = useState<
+    'course_intro' | 'instructor_profile' | undefined
+  >(undefined);
   const [form] = Form.useForm();
   const [templates, setTemplates] = useState<Template[]>([]);
-  const { accessToken } = useAuth();
+  const { accessToken, user } = useAuth();
+  const [courses, setCourses] = useState<{ id: string; title: string }[]>([]);
+  const [instructors, setInstructors] = useState<{ id: string; name: string }[]>(
+    [],
+  );
 
   const createMutation = useMutation({
-    mutationFn: (data: { name: string; html: string; css: string }) =>
+    mutationFn: (data: { name: string; type: string; html: string; css: string }) =>
       api.templateCreate({ ...data, token: accessToken || undefined }),
     onSuccess: (result: unknown) => {
       const templateResult = result as { id: string; name: string };
@@ -84,7 +113,7 @@ export default function TemplatesPage() {
   });
 
   const listMutation = useMutation({
-    mutationFn: () => api.templateList(1, 50),
+    mutationFn: () => api.templateList(1, 50, templateType),
     onSuccess: (result: unknown) => {
       const data = result as { items: Template[]; total: number };
       setTemplates(data.items || []);
@@ -98,7 +127,14 @@ export default function TemplatesPage() {
     mutationFn: ({ html, css, data }: { html: string; css: string; data: Record<string, unknown> }) =>
       api.templatePreviewHtml(html, css, data),
     onSuccess: (result: unknown) => {
-      setPreviewHtml(result as string);
+      const html = result as string;
+      setPreviewHtml(html);
+      const win = window.open('', '_blank', 'width=900,height=1200');
+      if (win) {
+        win.document.open();
+        win.document.write(html);
+        win.document.close();
+      }
     },
     onError: (error: Error) => {
       message.error(`미리보기 실패: ${error.message}`);
@@ -116,8 +152,9 @@ export default function TemplatesPage() {
     }
     form.setFieldsValue({
       name: '',
-      html: defaultHtml,
-      css: defaultCss,
+      type: templateType || 'course_intro',
+      html: initialHtml,
+      css: initialCss,
     });
     setPreviewHtml('');
     setIsModalOpen(true);
@@ -138,7 +175,63 @@ export default function TemplatesPage() {
 
   const handlePreview = () => {
     const values = form.getFieldsValue();
-    const sampleData = {
+    const currentType = templateType || values.type;
+    if (!currentType) {
+      message.warning('구분을 먼저 선택하세요.');
+      return;
+    }
+
+    if (currentType === 'course_intro') {
+      if (courses.length === 0) {
+        api.courseList(50, 0).then((result) => {
+          const data = result as { courses: { id: string; title: string }[] };
+          setCourses(data.courses || []);
+        });
+      }
+      setPreviewTargetId(undefined);
+      setPreviewTargetType('course_intro');
+      setPreviewTargetOpen(true);
+      return;
+    }
+
+    if (currentType === 'instructor_profile') {
+      if (user?.role === 'instructor') {
+        if (!accessToken) {
+          message.warning('로그인 후 이용해주세요.');
+          return;
+        }
+        api.instructorGetByUser(accessToken).then((result) => {
+          const instructor = result as any;
+          const data = {
+            instructor,
+            courses: instructor.Courses || [],
+            schedules: instructor.Schedules || [],
+          };
+          const a4Css = '@page { size: A4; margin: 20mm; } body{ margin:0; }';
+          previewMutation.mutate({
+            html: values.html,
+            css: `${a4Css}\n${values.css}`,
+            data,
+          });
+        }).catch((error: Error) => {
+          message.error(`미리보기 실패: ${error.message}`);
+        });
+        return;
+      }
+
+      if (instructors.length === 0) {
+        api.instructorList(50, 0).then((result) => {
+          const data = result as { instructors: { id: string; name: string }[] };
+          setInstructors(data.instructors || []);
+        });
+      }
+      setPreviewTargetId(undefined);
+      setPreviewTargetType('instructor_profile');
+      setPreviewTargetOpen(true);
+      return;
+    }
+
+    const defaultSampleData = {
       course: {
         title: '샘플 코스',
         description: '코스 설명입니다.',
@@ -149,14 +242,75 @@ export default function TemplatesPage() {
         { title: '모듈 2', hours: 3 },
       ],
     };
+    const a4Css = '@page { size: A4; margin: 20mm; } body{ margin:0; }';
     previewMutation.mutate({
       html: values.html,
-      css: values.css,
-      data: sampleData,
+      css: `${a4Css}\n${values.css}`,
+      data: sampleData || defaultSampleData,
     });
   };
 
+  const handleConfirmPreviewTarget = async () => {
+    const values = form.getFieldsValue();
+    const currentType = templateType || values.type;
+    if (!currentType || !previewTargetId) {
+      message.warning('대상을 선택하세요.');
+      return;
+    }
+
+    if (currentType === 'course_intro') {
+      try {
+        const course = (await api.courseGet(previewTargetId)) as any;
+        const data = {
+          course,
+          instructors: course.Instructors || [],
+          lectures: course.Lectures || [],
+          modules: course.Lectures || [],
+          schedules: course.Schedules || [],
+          courseLectures: course.Lectures || [],
+          courseSchedules: course.Schedules || [],
+        };
+        const a4Css = '@page { size: A4; margin: 20mm; } body{ margin:0; }';
+        previewMutation.mutate({
+          html: values.html,
+          css: `${a4Css}\n${values.css}`,
+          data,
+        });
+        setPreviewTargetOpen(false);
+      } catch (error: any) {
+        message.error(`미리보기 실패: ${error.message}`);
+      }
+      return;
+    }
+
+    if (currentType === 'instructor_profile') {
+      try {
+        const instructor = (await api.instructorGet(previewTargetId)) as any;
+        const data = {
+          instructor,
+          courses: instructor.Courses || [],
+          schedules: instructor.Schedules || [],
+        };
+        const a4Css = '@page { size: A4; margin: 20mm; } body{ margin:0; }';
+        previewMutation.mutate({
+          html: values.html,
+          css: `${a4Css}\n${values.css}`,
+          data,
+        });
+        setPreviewTargetOpen(false);
+      } catch (error: any) {
+        message.error(`미리보기 실패: ${error.message}`);
+      }
+    }
+  };
+
   const columns = [
+    {
+      title: 'No',
+      key: 'no',
+      width: 60,
+      render: (_: unknown, __: unknown, index: number) => index + 1,
+    },
     {
       title: 'ID',
       dataIndex: 'id',
@@ -168,6 +322,15 @@ export default function TemplatesPage() {
       title: '템플릿명',
       dataIndex: 'name',
       key: 'name',
+    },
+    {
+      title: '구분',
+      key: 'type',
+      width: 120,
+      render: (_: unknown, record: Template) => {
+        const label = record.type ? (typeLabelMap[record.type] || record.type) : undefined;
+        return label || typeLabel || '-';
+      },
     },
     {
       title: '생성일',
@@ -204,7 +367,12 @@ export default function TemplatesPage() {
   return (
     <div>
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between' }}>
-        <h2 style={{ margin: 0 }}>템플릿 관리</h2>
+        <div>
+          <h2 style={{ margin: 0 }}>{title}</h2>
+          {description && (
+            <div style={{ color: '#666', marginTop: 4 }}>{description}</div>
+          )}
+        </div>
         <Space>
           <Button onClick={() => listMutation.mutate()} loading={listMutation.isPending}>
             새로고침
@@ -248,6 +416,24 @@ export default function TemplatesPage() {
           >
             <Input />
           </Form.Item>
+          {templateType ? (
+            <Form.Item name="type" hidden>
+              <Input />
+            </Form.Item>
+          ) : (
+            <Form.Item
+              name="type"
+              label="구분"
+              rules={[{ required: true, message: '구분을 선택하세요' }]}
+            >
+              <Select
+                options={[
+                  { value: 'instructor_profile', label: '강사 프로필' },
+                  { value: 'course_intro', label: '과정 소개' },
+                ]}
+              />
+            </Form.Item>
+          )}
 
           <Tabs
             items={[
@@ -289,6 +475,38 @@ export default function TemplatesPage() {
           />
         </Form>
       </Modal>
+
+      <Modal
+        title="미리보기 대상 선택"
+        open={previewTargetOpen}
+        onCancel={() => setPreviewTargetOpen(false)}
+        onOk={handleConfirmPreviewTarget}
+        okText="미리보기"
+        cancelText="취소"
+      >
+        <Form layout="vertical">
+          <Form.Item label={previewTargetType === 'course_intro' ? '코스 선택' : '강사 선택'}>
+            <Select
+              showSearch
+              placeholder="선택하세요"
+              value={previewTargetId}
+              onChange={(value) => setPreviewTargetId(value)}
+              options={
+                previewTargetType === 'course_intro'
+                  ? courses.map((c) => ({ value: c.id, label: c.title }))
+                  : instructors.map((i) => ({ value: i.id, label: i.name }))
+              }
+              filterOption={(input, option) =>
+                (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+              }
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   );
 }
+  const typeLabelMap: Record<string, string> = {
+    instructor_profile: '강사 프로필',
+    course_intro: '과정 소개',
+  };

@@ -1,4 +1,5 @@
-import { Layout as AntLayout, Menu, theme, Button, Dropdown, Space, Avatar } from 'antd';
+import { Layout as AntLayout, Menu, theme, Button, Dropdown, Space, Avatar, Tag } from 'antd';
+import { useEffect, useState } from 'react';
 import type { MenuProps } from 'antd';
 import {
   BookOutlined,
@@ -8,7 +9,6 @@ import {
   LogoutOutlined,
   LoginOutlined,
   TeamOutlined,
-  SettingOutlined,
 } from '@ant-design/icons';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -19,7 +19,9 @@ export default function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
   const { token } = theme.useToken();
-  const { user, isAuthenticated, logout } = useAuth();
+  const { user, isAuthenticated, logout, accessToken } = useAuth();
+  const [sessionRemaining, setSessionRemaining] = useState<number | null>(null);
+  const [sessionExpired, setSessionExpired] = useState(false);
 
   // Build menu items dynamically
   const menuItems = [
@@ -36,7 +38,7 @@ export default function Layout() {
     {
       key: '/templates',
       icon: <FileTextOutlined />,
-      label: '템플릿',
+      label: '템플릿 관리',
     },
     {
       key: '/render',
@@ -46,24 +48,10 @@ export default function Layout() {
     // Member management section
     ...(isAuthenticated ? [
       {
-        key: 'member',
+        key: '/admin/users',
         icon: <TeamOutlined />,
         label: '회원관리',
-        children: [
-          {
-            key: '/profile',
-            icon: <SettingOutlined />,
-            label: '내 정보',
-          },
-          // Admin only: user list
-          ...(user?.role === 'admin' ? [
-            {
-              key: '/admin/users',
-              icon: <TeamOutlined />,
-              label: '회원 목록',
-            },
-          ] : []),
-        ],
+        disabled: user?.role !== 'admin',
       },
     ] : []),
   ];
@@ -91,6 +79,55 @@ export default function Layout() {
     },
   ];
 
+  useEffect(() => {
+    let timer: number | undefined;
+
+    const decodeExp = (jwtToken?: string | null): number | null => {
+      if (!jwtToken) return null;
+      const parts = jwtToken.split('.');
+      if (parts.length !== 3) return null;
+      try {
+        const payload = JSON.parse(atob(parts[1]));
+        if (typeof payload?.exp === 'number') return payload.exp * 1000;
+      } catch {
+        return null;
+      }
+      return null;
+    };
+
+    const update = () => {
+      const expMs = decodeExp(accessToken);
+      if (!expMs) {
+        setSessionRemaining(null);
+        setSessionExpired(false);
+        return;
+      }
+      const diff = expMs - Date.now();
+      if (diff <= 0) {
+        setSessionRemaining(0);
+        setSessionExpired(true);
+      } else {
+        setSessionRemaining(diff);
+        setSessionExpired(false);
+      }
+    };
+
+    update();
+    timer = window.setInterval(update, 1000);
+
+    return () => {
+      if (timer) window.clearInterval(timer);
+    };
+  }, [accessToken]);
+
+  const formatRemaining = (ms: number | null) => {
+    if (ms === null) return '-';
+    const totalSec = Math.max(0, Math.floor(ms / 1000));
+    const min = Math.floor(totalSec / 60);
+    const sec = totalSec % 60;
+    return `${min}:${sec.toString().padStart(2, '0')}`;
+  };
+
   return (
     <AntLayout style={{ minHeight: '100vh' }}>
       <Header
@@ -109,12 +146,20 @@ export default function Layout() {
 
         <Space>
           {isAuthenticated && user ? (
-            <Dropdown menu={{ items: userMenuItems }} placement="bottomRight">
-              <Space style={{ cursor: 'pointer' }}>
-                <Avatar size="small" icon={<UserOutlined />} />
-                <span>{user.name}</span>
-              </Space>
-            </Dropdown>
+            <Space>
+              <Tag color={sessionExpired ? 'red' : 'green'}>
+                {sessionExpired ? '세션 만료' : '세션 정상'}
+              </Tag>
+              <span style={{ color: '#666' }}>
+                종료까지 {formatRemaining(sessionRemaining)}
+              </span>
+              <Dropdown menu={{ items: userMenuItems }} placement="bottomRight">
+                <Space style={{ cursor: 'pointer' }}>
+                  <Avatar size="small" icon={<UserOutlined />} />
+                  <span>{user.name}</span>
+                </Space>
+              </Dropdown>
+            </Space>
           ) : (
             <Space>
               <Button

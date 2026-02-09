@@ -27,6 +27,7 @@ async function resolveCreatorNames<T extends { createdBy?: string | null }>(
 // 스키마 정의
 export const templateCreateSchema = {
   name: z.string().describe('템플릿 이름'),
+  type: z.string().describe('템플릿 타입 (instructor_profile | course_intro 등)'),
   html: z.string().describe('Handlebars 템플릿 HTML'),
   css: z.string().describe('템플릿 CSS'),
   token: z.string().optional().describe('인증 토큰 (등록자 추적용)'),
@@ -39,6 +40,7 @@ export const templateGetSchema = {
 export const templateListSchema = {
   page: z.number().int().min(1).default(1).describe('페이지 번호'),
   pageSize: z.number().int().min(1).max(100).default(20).describe('페이지당 항목 수'),
+  type: z.string().optional().describe('템플릿 타입 필터'),
 };
 
 export const templatePreviewHtmlSchema = {
@@ -50,6 +52,7 @@ export const templatePreviewHtmlSchema = {
 // 핸들러 정의
 export async function templateCreateHandler(args: {
   name: string;
+  type: string;
   html: string;
   css: string;
   token?: string;
@@ -69,6 +72,7 @@ export async function templateCreateHandler(args: {
     const template = await prisma.template.create({
       data: {
         name: args.name,
+        type: args.type,
         html: args.html,
         css: args.css,
         createdBy,
@@ -125,18 +129,24 @@ export async function templateGetHandler(args: { id: string }) {
   }
 }
 
-export async function templateListHandler(args: { page: number; pageSize: number }) {
+export async function templateListHandler(args: {
+  page: number;
+  pageSize: number;
+  type?: string;
+}) {
   try {
     const skip = (args.page - 1) * args.pageSize;
     const take = args.pageSize;
+    const where = args.type ? { type: args.type } : undefined;
 
     const [rawTemplates, total] = await prisma.$transaction([
       prisma.template.findMany({
         skip,
         take,
         orderBy: { createdAt: 'desc' },
+        where,
       }),
-      prisma.template.count(),
+      prisma.template.count({ where }),
     ]);
 
     const items = await resolveCreatorNames(rawTemplates);

@@ -13,6 +13,8 @@ import {
 import {
     instructorGetHandler,
     instructorGetSchema,
+    instructorGetByUserHandler,
+    instructorGetByUserSchema,
     instructorListHandler,
     instructorListSchema,
     instructorUpsertHandler,
@@ -124,6 +126,14 @@ server.tool(
   "강사 단건 조회",
   instructorGetSchema,
   async (args) => instructorGetHandler(args),
+);
+
+// 툴 등록: instructor.getByUser
+server.tool(
+  "instructor.getByUser",
+  "내 강사 정보 조회",
+  instructorGetByUserSchema,
+  async (args) => instructorGetByUserHandler(args),
 );
 
 // 툴 등록: instructor.list

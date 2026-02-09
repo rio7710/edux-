@@ -197,6 +197,9 @@ export const api = {
 
   instructorGet: (id: string) => mcpClient.callTool("instructor.get", { id }),
 
+  instructorGetByUser: (token: string) =>
+    mcpClient.callTool("instructor.getByUser", { token }),
+
   instructorList: (limit = 50, offset = 0) =>
     mcpClient.callTool("instructor.list", { limit, offset }),
 
@@ -236,6 +239,7 @@ export const api = {
   // Template
   templateCreate: (data: {
     name: string;
+    type: string;
     html: string;
     css: string;
     token?: string;
@@ -243,8 +247,8 @@ export const api = {
 
   templateGet: (id: string) => mcpClient.callTool("template.get", { id }),
 
-  templateList: (page = 1, pageSize = 20) =>
-    mcpClient.callTool("template.list", { page, pageSize }),
+  templateList: (page = 1, pageSize = 20, type?: string) =>
+    mcpClient.callTool("template.list", { page, pageSize, type }),
 
   templatePreviewHtml: (
     html: string,

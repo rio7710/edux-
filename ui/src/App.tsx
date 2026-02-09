@@ -8,7 +8,7 @@ import { AuthProvider } from './contexts/AuthContext';
 import Layout from './components/Layout';
 import CoursesPage from './pages/CoursesPage';
 import InstructorsPage from './pages/InstructorsPage';
-import TemplatesPage from './pages/TemplatesPage';
+import TemplatesHubPage from './pages/TemplatesHubPage';
 import RenderPage from './pages/RenderPage';
 import { TestEchoPage } from './pages/TestEchoPage';
 import LoginPage from './pages/LoginPage';
@@ -50,7 +50,7 @@ function AppContent() {
           <Route index element={<Navigate to="/courses" replace />} />
           <Route path="courses" element={<CoursesPage />} />
           <Route path="instructors" element={<InstructorsPage />} />
-          <Route path="templates" element={<TemplatesPage />} />
+          <Route path="templates" element={<TemplatesHubPage />} />
           <Route path="render" element={<RenderPage />} />
           <Route path="test-echo" element={<TestEchoPage />} />
           <Route path="profile" element={<ProfilePage />} />

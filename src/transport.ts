@@ -17,6 +17,8 @@ import {
   instructorUpsertHandler,
   instructorGetSchema,
   instructorGetHandler,
+  instructorGetByUserSchema,
+  instructorGetByUserHandler,
   instructorListSchema,
   instructorListHandler,
 } from './tools/instructor.js';
@@ -114,6 +116,7 @@ function createMcpServer(): McpServer {
   server.tool('course.list', '코스 목록 조회', courseListSchema, async (args) => courseListHandler(args));
   server.tool('instructor.upsert', '강사 생성 또는 수정', instructorUpsertSchema, async (args) => instructorUpsertHandler(args));
   server.tool('instructor.get', '강사 단건 조회', instructorGetSchema, async (args) => instructorGetHandler(args));
+  server.tool('instructor.getByUser', '내 강사 정보 조회', instructorGetByUserSchema, async (args) => instructorGetByUserHandler(args));
   server.tool('instructor.list', '강사 목록 조회', instructorListSchema, async (args) => instructorListHandler(args));
   server.tool('lecture.upsert', '강의 생성 또는 수정', lectureUpsertSchema, async (args) => lectureUpsertHandler(args));
   server.tool('lecture.get', '강의 단건 조회', lectureGetSchema, async (args) => lectureGetHandler(args));
