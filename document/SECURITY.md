@@ -22,10 +22,86 @@
 ## 역할 기반 접근 제어 (RBAC)
 
 ### 역할 정의
-
-- **admin**: 모든 툴 실행 + 사용자 관리
-- **editor**: 코스/강사/템플릿/스케줄 CRUD + PDF 렌더
 - **viewer**: 읽기 전용 (`*.get`, `*.list` 툴만 허용)
+## 그룹 정의 및 로그인 정책
+
+### 그룹(역할) 정의
+
+- **admin**: 시스템 전체 제어 권한. 사용자/권한 관리, 모든 데이터 및 설정 접근 가능.
+- **manager**: 운영 업무 담당자. 코스/일정 관리, 사용자 조회·통계 권한 보유.
+- **instructor**: 강의자 전용 권한. 자신이 소유한 코스/강의/일정 CRUD 가능. (강사 전용 필드 활성화 가능)
+- **editor**: 콘텐츠 편집자. 코스·템플릿·스케줄 생성/수정 권한.
+- **viewer**: 읽기 전용 권한. `*.get`, `*.list` 호출만 허용.
+- **guest**: 최소 권한. 인증 전용 뷰/체험용 액세스.
+
+> 권한(그룹)은 `User.role` 필드로 관리하며, 내부적으로 툴 레벨 매트릭스에서 세밀하게 제어합니다.
+
+### 로그인 및 인증 정책
+
+- **비밀번호 정책**
+  - 최소 길이: 8자
+  - 권장: 대문자·소문자·숫자·특수문자 혼합
+  - 이전 비밀번호 재사용 제한(최근 3회)
+
+- **이메일 인증**
+  - 회원가입 시 이메일 검증 필수: 임시 토큰(`emailVerificationToken`) 발급, 만료 24시간
+  - 이메일 변경 시 재검증 필요
+
+- **비밀번호 재설정**
+  - `passwordResetToken` 발급 및 이메일 송신, 만료 기본 1시간
+  - 토큰 사용 시 일회성으로 무효화
+
+- **세션 및 토큰**
+  - 액세스 JWT 토큰 기본 만료: 24시간
+  - 장기접속(리프레시) 토큰 사용 시: 별도 `refreshToken` 발급(장기 만료), DB에 해시 저장
+  - 로그아웃 시 클라이언트 토큰 제거 및 서버 측 토큰 블랙리스트(필요 시) 처리
+
+- **MFA(선택)**
+  - 2단계 인증(TOTP) 지원 옵션 설계: 사용자 프로필에 `mfaEnabled`, `mfaSecret` 필드 추가 권장
+
+- **계정 잠금 및_rate limiting_**
+  - 실패 로그인 시도 5회 초과 시 계정 잠금(기본 15분)
+  - IP/계정별 요청 비율 제한 적용 (예: 10req/min 로그인 엔드포인트)
+
+### 이메일 전송 및 개발 환경 모드
+
+- 개발 환경: 이메일 발송은 로그(콘솔)로 대체 가능
+- 운영 환경: SMTP 또는 메일 서비스(SendGrid, SES 등) 설정 필요
+
+### 구현 메모 (개발자 참고)
+
+- Prisma 스키마 권장 필드(예)
+
+```prisma
+model User {
+  id                   String   @id @default(cuid())
+  email                String   @unique
+  name                 String
+  role                 Role     @default(viewer)
+  hashedPassword       String?
+  emailVerified        Boolean  @default(false)
+  emailVerificationToken String?
+  passwordResetToken   String?
+  passwordResetExpires DateTime?
+  mfaEnabled           Boolean  @default(false)
+  mfaSecret            String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+enum Role {
+  admin
+  manager
+  instructor
+  editor
+  viewer
+  guest
+}
+```
+
+- MCP 툴(예): `user.register`, `user.verifyEmail`, `user.requestPasswordReset`, `user.resetPassword`, `user.login`, `user.me`, `user.list`, `user.updateRole`
+
+---
 
 ### 툴별 권한 매트릭스
 
