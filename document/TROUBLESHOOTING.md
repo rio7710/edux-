@@ -88,6 +88,32 @@
 3. `/messages?sessionId=...` 호출 응답 확인
 4. 프론트/백엔드 로그 tail 확인
 
+## 8) 마이그레이션 트러블슈팅 (Prisma)
+
+### 증상: `prisma migrate dev`가 shadow DB 오류로 실패
+
+#### 원인
+- 로컬 Postgres 환경에 shadow DB가 없거나 권한 부족
+
+#### 해결/우회
+- **권장**: `--skip-shadow-database` 사용
+  - 예: `npx prisma migrate dev --name <name> --skip-shadow-database`
+- **대안**: shadow DB 수동 생성
+  - 예: `CREATE DATABASE <db>_shadow`
+- **수동 운영**: `--create-only`로 SQL 생성 후 `migrate deploy`로 적용
+
+### 증상: 기존 마이그레이션 상태가 꼬여 `migrate dev` 실패
+
+#### 해결/우회
+- `npx prisma migrate resolve --applied <migration_id>`
+- 이미 DB에 반영된 상태라면 resolve로 상태만 정리
+
+### 금지/주의 사항
+
+- **금지**: `migrate dev`를 운영/공유 DB에 직접 실행
+- **주의**: `migrate reset`은 데이터 삭제하므로 운영/공유 DB에서 사용 금지
+- **주의**: shadow DB가 자동 생성되지 않는 환경에서는 `--skip-shadow-database` 권장
+
 ## 참고 파일
 
 - `ui/src/api/mcpClient.ts` (MCP 연결/재시도/타임아웃 로직)
