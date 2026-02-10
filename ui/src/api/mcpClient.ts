@@ -26,12 +26,18 @@ class McpClient {
   >();
   private connected = false;
   private onConnectCallbacks: Array<() => void> = [];
+  private baseUrl: string;
+
+  constructor() {
+    const envBase = import.meta.env.VITE_MCP_BASE_URL as string | undefined;
+    this.baseUrl = envBase ?? (import.meta.env.DEV ? "http://localhost:7777" : "");
+  }
 
   async connect(): Promise<void> {
     if (this.connected) return;
 
     return new Promise((resolve, reject) => {
-      this.eventSource = new EventSource("/sse");
+      this.eventSource = new EventSource(`${this.baseUrl}/sse`);
 
       this.eventSource.onopen = () => {
         console.log("[MCP] SSE connected");
@@ -152,7 +158,7 @@ class McpClient {
       });
 
       console.log("[MCP] Tool request:", name, args);
-      fetch(`/messages?sessionId=${this.sessionId}`, {
+      fetch(`${this.baseUrl}/messages?sessionId=${this.sessionId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(request),
