@@ -37,6 +37,11 @@ class McpClient {
     if (this.connected) return;
 
     return new Promise((resolve, reject) => {
+      const timeout = window.setTimeout(() => {
+        this.disconnect();
+        reject(new Error("MCP 연결 시간이 초과되었습니다."));
+      }, 8000);
+
       this.eventSource = new EventSource(`${this.baseUrl}/sse`);
 
       this.eventSource.onopen = () => {
@@ -52,6 +57,7 @@ class McpClient {
         this.connected = true;
         console.log("[MCP] Session ID:", this.sessionId);
         this.onConnectCallbacks.forEach((cb) => cb());
+        window.clearTimeout(timeout);
         resolve();
       });
 
@@ -89,6 +95,7 @@ class McpClient {
         console.error("[MCP] SSE error:", error);
         this.connected = false;
         this.sessionId = null;
+        window.clearTimeout(timeout);
         reject(error);
       };
     });
@@ -136,8 +143,14 @@ class McpClient {
     };
 
     return new Promise((resolve, reject) => {
+      const timeout = window.setTimeout(() => {
+        this.pendingRequests.delete(id);
+        reject(new Error("요청 시간이 초과되었습니다."));
+      }, 15000);
+
       this.pendingRequests.set(id, {
         resolve: (result: unknown) => {
+          window.clearTimeout(timeout);
           const mcpResult = result as McpResponse["result"];
           if (mcpResult?.isError) {
             const errorText = mcpResult.content?.[0]?.text || "Unknown error";
@@ -165,6 +178,7 @@ class McpClient {
       })
         .then(async (res) => {
           if (res.ok) return;
+          window.clearTimeout(timeout);
           this.pendingRequests.delete(id);
           if (res.status === 404) {
             this.disconnect();
@@ -184,6 +198,7 @@ class McpClient {
           );
         })
         .catch((err) => {
+          window.clearTimeout(timeout);
           this.pendingRequests.delete(id);
           reject(err);
         });
