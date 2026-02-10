@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Card, Divider, Result, Select, Space, Switch, Table, Tag, Input, Tabs, InputNumber, message } from 'antd';
+import { Alert, Button, Card, Divider, Result, Select, Space, Switch, Table, Tag, Input, Tabs, InputNumber, Upload, message } from 'antd';
 import { ArrowUpOutlined, ArrowDownOutlined, SaveOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../api/mcpClient';
 import { NO_COLUMN_KEY, normalizeConfig } from '../utils/tableConfig';
 import type { ColumnConfig } from '../utils/tableConfig';
 import { DEFAULT_COLUMNS } from '../utils/tableDefaults';
+import type { RcFile } from 'antd/es/upload';
 
 const TABLE_OPTIONS = [
   { value: 'courses', label: '코스' },
@@ -25,6 +26,12 @@ export default function SiteSettingsPage() {
   const [loading, setLoading] = useState(false);
   const [extendMinutes, setExtendMinutes] = useState(10);
   const [extendDirty, setExtendDirty] = useState(false);
+  const [faviconUrl, setFaviconUrl] = useState<string>('');
+  const [faviconDirty, setFaviconDirty] = useState(false);
+  const [logoUrl, setLogoUrl] = useState<string>('');
+  const [logoDirty, setLogoDirty] = useState(false);
+  const [siteTitle, setSiteTitle] = useState<string>('Edux - HR 강의 계획서 관리');
+  const [titleDirty, setTitleDirty] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -81,6 +88,81 @@ export default function SiteSettingsPage() {
         if (!cancelled) {
           setExtendMinutes(10);
           setExtendDirty(false);
+        }
+      }
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      if (!accessToken) return;
+      try {
+        const result = (await api.siteSettingGet(accessToken, 'favicon_url')) as {
+          value: string | null;
+        };
+        if (!cancelled) {
+          setFaviconUrl(result?.value || '');
+          setFaviconDirty(false);
+        }
+      } catch {
+        if (!cancelled) {
+          setFaviconUrl('');
+          setFaviconDirty(false);
+        }
+      }
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      if (!accessToken) return;
+      try {
+        const result = (await api.siteSettingGet(accessToken, 'logo_url')) as {
+          value: string | null;
+        };
+        if (!cancelled) {
+          setLogoUrl(result?.value || '');
+          setLogoDirty(false);
+        }
+      } catch {
+        if (!cancelled) {
+          setLogoUrl('');
+          setLogoDirty(false);
+        }
+      }
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      if (!accessToken) return;
+      try {
+        const result = (await api.siteSettingGet(accessToken, 'site_title')) as {
+          value: string | null;
+        };
+        if (!cancelled) {
+          setSiteTitle(result?.value || 'Edux - HR 강의 계획서 관리');
+          setTitleDirty(false);
+        }
+      } catch {
+        if (!cancelled) {
+          setSiteTitle('Edux - HR 강의 계획서 관리');
+          setTitleDirty(false);
         }
       }
     };
@@ -193,14 +275,15 @@ export default function SiteSettingsPage() {
             key: 'basic',
             label: '기본관리',
             children: (
-              <Card>
+              <>
                 <Alert
                   type="info"
                   showIcon
-                  message="기본관리 (더미)"
-                  description="향후 사이트 공통 설정을 이 탭에서 관리합니다."
+                  message="기본관리"
+                  description="사이트 공통 설정을 이 탭에서 관리합니다."
                   style={{ marginBottom: 16 }}
                 />
+                <Card>
                 <Space direction="vertical" style={{ width: '100%' }}>
                   <div>
                     <div style={{ fontWeight: 600, marginBottom: 8 }}>세션 연장 시간(분)</div>
@@ -253,8 +336,170 @@ export default function SiteSettingsPage() {
                       </Button>
                     </Space>
                   </div>
+                  <Divider />
+                  <div>
+                    <div style={{ fontWeight: 600, marginBottom: 8 }}>파비콘 변경</div>
+                    <Space>
+                      <Upload
+                        showUploadList={false}
+                        accept="image/*,.ico,.svg"
+                        beforeUpload={async (file: RcFile) => {
+                          try {
+                            const result = await api.uploadFile(file);
+                            setFaviconUrl(result.url);
+                            setFaviconDirty(true);
+                            message.success('파비콘 업로드 완료');
+                          } catch (err: any) {
+                            message.error(`업로드 실패: ${err.message}`);
+                          }
+                          return false;
+                        }}
+                      >
+                        <Button>파일 선택</Button>
+                      </Upload>
+                      <Input value={faviconUrl || ''} readOnly style={{ width: 320 }} />
+                      <Button
+                        type="primary"
+                        disabled={!faviconDirty}
+                        onClick={() => {
+                          if (!accessToken) {
+                            message.error('로그인이 필요합니다.');
+                            return;
+                          }
+                          api.siteSettingUpsert({
+                            token: accessToken,
+                            key: 'favicon_url',
+                            value: faviconUrl || '',
+                          })
+                            .then(() => {
+                              setFaviconDirty(false);
+                              message.success('파비콘 설정이 저장되었습니다.');
+                            })
+                            .catch((err: Error) => {
+                              message.error(`저장 실패: ${err.message}`);
+                            });
+                        }}
+                      >
+                        저장
+                      </Button>
+                      <Button
+                        onClick={() => {
+                          setFaviconUrl('');
+                          setFaviconDirty(true);
+                        }}
+                      >
+                        기본값 복원
+                      </Button>
+                    </Space>
+                    <div style={{ marginTop: 8, color: '#999' }}>
+                      저장 후 새로고침 시 기본 파비콘이 변경됩니다.
+                    </div>
+                  </div>
+                  <Divider />
+                  <div>
+                    <div style={{ fontWeight: 600, marginBottom: 8 }}>로고 변경</div>
+                    <Space>
+                      <Upload
+                        showUploadList={false}
+                        accept="image/*,.svg"
+                        beforeUpload={async (file: RcFile) => {
+                          try {
+                            const result = await api.uploadFile(file);
+                            setLogoUrl(result.url);
+                            setLogoDirty(true);
+                            message.success('로고 업로드 완료');
+                          } catch (err: any) {
+                            message.error(`업로드 실패: ${err.message}`);
+                          }
+                          return false;
+                        }}
+                      >
+                        <Button>파일 선택</Button>
+                      </Upload>
+                      <Input value={logoUrl || ''} readOnly style={{ width: 320 }} />
+                      <Button
+                        type="primary"
+                        disabled={!logoDirty}
+                        onClick={() => {
+                          if (!accessToken) {
+                            message.error('로그인이 필요합니다.');
+                            return;
+                          }
+                          api.siteSettingUpsert({
+                            token: accessToken,
+                            key: 'logo_url',
+                            value: logoUrl || '',
+                          })
+                            .then(() => {
+                              setLogoDirty(false);
+                              message.success('로고 설정이 저장되었습니다.');
+                            })
+                            .catch((err: Error) => {
+                              message.error(`저장 실패: ${err.message}`);
+                            });
+                        }}
+                      >
+                        저장
+                      </Button>
+                      <Button
+                        onClick={() => {
+                          setLogoUrl('');
+                          setLogoDirty(true);
+                        }}
+                      >
+                        기본값 복원
+                      </Button>
+                    </Space>
+                  </div>
+                  <Divider />
+                  <div>
+                    <div style={{ fontWeight: 600, marginBottom: 8 }}>사이트 타이틀</div>
+                    <Space>
+                      <Input
+                        value={siteTitle}
+                        onChange={(e) => {
+                          setSiteTitle(e.target.value);
+                          setTitleDirty(true);
+                        }}
+                        style={{ width: 360 }}
+                      />
+                      <Button
+                        type="primary"
+                        disabled={!titleDirty}
+                        onClick={() => {
+                          if (!accessToken) {
+                            message.error('로그인이 필요합니다.');
+                            return;
+                          }
+                          api.siteSettingUpsert({
+                            token: accessToken,
+                            key: 'site_title',
+                            value: siteTitle || 'Edux - HR 강의 계획서 관리',
+                          })
+                            .then(() => {
+                              setTitleDirty(false);
+                              message.success('사이트 타이틀이 저장되었습니다.');
+                            })
+                            .catch((err: Error) => {
+                              message.error(`저장 실패: ${err.message}`);
+                            });
+                        }}
+                      >
+                        저장
+                      </Button>
+                      <Button
+                        onClick={() => {
+                          setSiteTitle('Edux - HR 강의 계획서 관리');
+                          setTitleDirty(true);
+                        }}
+                      >
+                        기본값 복원
+                      </Button>
+                    </Space>
+                  </div>
                 </Space>
-              </Card>
+                </Card>
+              </>
             ),
           },
           {
@@ -265,11 +510,10 @@ export default function SiteSettingsPage() {
                 <Alert
                   type="info"
                   showIcon
-                  message="프론트 우선 구현"
-                  description="현재는 로컬 저장(LocalStorage)만 지원합니다. 백엔드 연동 후 전 사용자 공통 설정으로 반영됩니다."
+                  message="목차관리"
+                  description="테이블 컬럼 표시/순서를 공통 설정으로 관리합니다."
                   style={{ marginBottom: 16 }}
                 />
-
                 <Card>
                   <Space style={{ marginBottom: 16 }}>
                   <Select

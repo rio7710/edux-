@@ -27,6 +27,8 @@ export default function Layout() {
   const [extendMinutes, setExtendMinutes] = useState(10);
   const [showExtendPrompt, setShowExtendPrompt] = useState(false);
   const [extendPromptShown, setExtendPromptShown] = useState(false);
+  const [logoUrl, setLogoUrl] = useState<string>('');
+  const [siteTitle, setSiteTitle] = useState<string>('Edux - HR 강의 계획서 관리');
 
   // Build menu items dynamically
   const menuItems = [
@@ -164,12 +166,105 @@ export default function Layout() {
     };
   }, [accessToken]);
 
+  useEffect(() => {
+    const setFavicon = (href: string) => {
+      const link = document.querySelector("link[rel='icon']") as HTMLLinkElement | null;
+      if (link) {
+        link.href = href;
+      }
+    };
+    if (!accessToken) {
+      setFavicon('/favicon.svg');
+      return;
+    }
+    let cancelled = false;
+    const loadFavicon = async () => {
+      try {
+        const result = (await api.siteSettingGet(accessToken, 'favicon_url')) as {
+          value: string | null;
+        };
+        if (!cancelled) {
+          setFavicon(result?.value || '/favicon.svg');
+        }
+      } catch {
+        if (!cancelled) setFavicon('/favicon.svg');
+      }
+    };
+    loadFavicon();
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken]);
+
+  useEffect(() => {
+    if (!accessToken) {
+      setLogoUrl('');
+      setSiteTitle('Edux - HR 강의 계획서 관리');
+      document.title = 'Edux - HR 강의 계획서 관리';
+      return;
+    }
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const [logoResult, titleResult] = await Promise.all([
+          api.siteSettingGet(accessToken, 'logo_url') as Promise<{ value: string | null }>,
+          api.siteSettingGet(accessToken, 'site_title') as Promise<{ value: string | null }>,
+        ]);
+        if (cancelled) return;
+        const nextLogo = logoResult?.value || '';
+        const nextTitle = titleResult?.value || 'Edux - HR 강의 계획서 관리';
+        setLogoUrl(nextLogo);
+        setSiteTitle(nextTitle);
+        document.title = nextTitle;
+      } catch {
+        if (!cancelled) {
+          setLogoUrl('');
+          setSiteTitle('Edux - HR 강의 계획서 관리');
+          document.title = 'Edux - HR 강의 계획서 관리';
+        }
+      }
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken]);
+
   const formatRemaining = (ms: number | null) => {
     if (ms === null) return '-';
     const totalSec = Math.max(0, Math.floor(ms / 1000));
     const min = Math.floor(totalSec / 60);
     const sec = totalSec % 60;
     return `${min}:${sec.toString().padStart(2, '0')}`;
+  };
+
+  const recomputeRemaining = () => {
+    const decodeExp = (jwtToken?: string | null): number | null => {
+      if (!jwtToken) return null;
+      const parts = jwtToken.split('.');
+      if (parts.length !== 3) return null;
+      try {
+        const payload = JSON.parse(atob(parts[1]));
+        if (typeof payload?.exp === 'number') return payload.exp * 1000;
+      } catch {
+        return null;
+      }
+      return null;
+    };
+    const expMs = decodeExp(accessToken);
+    if (!expMs) {
+      setSessionRemaining(null);
+      setSessionExpired(false);
+      return;
+    }
+    const diff = expMs - Date.now();
+    if (diff <= 0) {
+      setSessionRemaining(0);
+      setSessionExpired(true);
+    } else {
+      setSessionRemaining(diff);
+      setSessionExpired(false);
+    }
   };
 
   return (
@@ -184,9 +279,16 @@ export default function Layout() {
           padding: '0 24px',
         }}
       >
-        <h1 style={{ margin: 0, fontSize: 20, fontWeight: 600 }}>
-          Edux - HR 강의 계획서 관리
-        </h1>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <img
+            src={logoUrl || '/logo.svg'}
+            alt="site logo"
+            style={{ width: 28, height: 28, borderRadius: 6, objectFit: 'contain' }}
+          />
+          <h1 style={{ margin: 0, fontSize: 20, fontWeight: 600 }}>
+            {siteTitle}
+          </h1>
+        </div>
 
         <Space>
           {isAuthenticated && user ? (
@@ -202,7 +304,8 @@ export default function Layout() {
                 onClick={async () => {
                   try {
                     const minutes = await extendSession();
-                    message.success(`세션이 ${minutes || extendMinutes}분 연장되었습니다.`);
+                    message.success(`세션이 ${minutes || extendMinutes}분으로 연장되었습니다.`);
+                    recomputeRemaining();
                     setShowExtendPrompt(false);
                     setExtendPromptShown(false);
                   } catch (err: any) {
@@ -283,7 +386,8 @@ export default function Layout() {
             onClick={async () => {
               try {
                 const minutes = await extendSession();
-                message.success(`세션이 ${minutes || extendMinutes}분 연장되었습니다.`);
+                message.success(`세션이 ${minutes || extendMinutes}분으로 연장되었습니다.`);
+                recomputeRemaining();
                 setShowExtendPrompt(false);
                 setExtendPromptShown(false);
               } catch (err: any) {
