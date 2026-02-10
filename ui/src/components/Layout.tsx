@@ -437,8 +437,6 @@ export default function Layout() {
             key="no"
             onClick={() => {
               setShowExtendPrompt(false);
-              logout();
-              navigate('/login');
             }}
           >
             연장안함
