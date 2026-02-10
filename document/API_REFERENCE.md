@@ -57,32 +57,38 @@ app.listen(7777);
 
 ## 2) 인증 (SSE 모드)
 
-SSE 모드에서는 HTTP 요청에 JWT 기반 인증을 적용합니다.
+SSE 모드에서는 MCP 툴 호출 시 **토큰을 파라미터로 전달**합니다.
 
 ### 인증 흐름
 
-1. 클라이언트가 `POST /auth/login`에 이메일/비밀번호 전송
+1. 클라이언트가 `user.login` 툴에 이메일/비밀번호 전송
 2. 서버가 User 테이블 조회 후 JWT 발급 (유효기간: 24h)
-3. 이후 요청에 `Authorization: Bearer <token>` 헤더 포함
-4. 미들웨어에서 토큰 검증 + 역할(Role) 확인
+3. 이후 툴 호출 시 `token` 파라미터 포함
+4. 각 툴 핸들러에서 토큰 검증 + 역할(Role) 확인
 
-### 엔드포인트
-
-- **`POST /auth/login`** — JWT 발급
+### 예시 (user.login)
 
 ```json
 {
-  "email": "admin@example.com",
-  "password": "..."
+  "jsonrpc": "2.0",
+  "id": 10,
+  "method": "tools/call",
+  "params": {
+    "name": "user.login",
+    "arguments": {
+      "email": "admin@example.com",
+      "password": "..."
+    }
+  }
 }
 ```
 
-응답:
+응답(툴 결과):
 
 ```json
 {
-  "token": "eyJhbGciOiJIUzI1NiIs...",
-  "user": { "id": "u_001", "name": "관리자", "role": "admin" }
+  "user": { "id": "u_001", "name": "관리자", "role": "admin" },
+  "accessToken": "eyJhbGciOiJIUzI1NiIs..."
 }
 ```
 
@@ -95,7 +101,26 @@ SSE 모드에서는 HTTP 요청에 JWT 기반 인증을 적용합니다.
 > stdio 모드에서는 로컬 환경이므로 인증을 생략할 수 있습니다.
 > 운영 환경에서는 반드시 SSE + JWT를 사용하세요.
 
-## 3) 정적 파일
+## 3) 파일 업로드
+
+### `POST /api/upload`
+
+파일 업로드 (이미지 또는 PDF).
+
+- 업로드 결과는 `/uploads/<file>` 형태 URL 반환
+- 최대 10MB
+
+응답 예:
+
+```json
+{ "url": "/uploads/1700000000000-xxxx.pdf" }
+```
+
+### `GET /uploads/<file>`
+
+업로드된 파일 정적 제공.
+
+## 4) 정적 파일
 
 ### `GET /pdf/<file>`
 
@@ -105,7 +130,24 @@ SSE 모드에서는 HTTP 요청에 JWT 기반 인증을 적용합니다.
 - stdio 모드: 별도 파일 서버 필요 또는 로컬 파일 경로로 직접 접근
 - 예시: `GET /pdf/course-c_123.pdf`
 
-## 4) MCP 프로토콜 메시지 예시
+> 현재 `/pdf/*`는 정적 파일로 제공되며 기본적으로 인증이 없습니다.  
+> 운영 환경에서 보호가 필요하면 서명 URL 또는 토큰 검증 미들웨어 적용이 필요합니다.
+
+## 5) PDF 렌더 응답
+
+`render.coursePdf`, `render.schedulePdf`는 큐에 작업을 등록하며,
+즉시 PDF URL을 반환하지 않습니다.
+
+응답 예:
+
+```json
+{
+  "jobId": "rj_001",
+  "status": "pending"
+}
+```
+
+## 6) MCP 프로토콜 메시지 예시
 
 ### tools/list 요청
 

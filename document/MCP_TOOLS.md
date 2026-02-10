@@ -135,7 +135,16 @@
 | `email` | string | - | 이메일 |
 | `phone` | string | - | 전화번호 |
 | `affiliation` | string | - | 소속 |
+| `avatarUrl` | string | - | 프로필 이미지 URL (`/uploads/...`) |
+| `tagline` | string | - | 한줄 소개 |
+| `bio` | string | - | 소개 |
 | `specialties` | string[] | - | 전문 분야 |
+| `certifications` | object[] | - | 자격/인증 (JSON 배열) |
+| `awards` | string[] | - | 수상 |
+| `links` | object | - | 링크 (JSON) |
+| `degrees` | object[] | - | 학력 (JSON 배열) |
+| `careers` | object[] | - | 경력 (JSON 배열) |
+| `publications` | object[] | - | 출판/논문 (JSON 배열) |
 | `token` | string | - | 인증 토큰 (등록자 추적용) |
 
 ### `instructor.get`
@@ -235,6 +244,8 @@ Handlebars 템플릿에 데이터를 주입하여 완성된 HTML을 반환.
 | `css` | string | O | CSS |
 | `data` | object | O | course, instructor, schedule 등 |
 
+> 실제 PDF 렌더러 기준 데이터 구조는 `TEMPLATE_GUIDE.md`를 참고하세요.
+
 ---
 
 ## 렌더 툴
@@ -248,6 +259,15 @@ Handlebars 템플릿에 데이터를 주입하여 완성된 HTML을 반환.
 | `templateId` | string | O | 템플릿 ID |
 | `courseId` | string | O | 코스 ID |
 
+응답:
+
+```json
+{
+  "jobId": "rj_001",
+  "status": "pending"
+}
+```
+
 ### `render.schedulePdf`
 
 일정 데이터 + 템플릿으로 PDF를 생성합니다.
@@ -256,6 +276,18 @@ Handlebars 템플릿에 데이터를 주입하여 완성된 HTML을 반환.
 |----------|------|------|------|
 | `templateId` | string | O | 템플릿 ID |
 | `scheduleId` | string | O | 일정 ID |
+
+응답:
+
+```json
+{
+  "jobId": "rj_002",
+  "status": "pending"
+}
+```
+
+> 현재 `render.*`는 작업만 등록하며 PDF URL을 즉시 반환하지 않습니다.  
+> 생성된 PDF 경로는 `RenderJob.pdfUrl`에 저장됩니다.
 
 ---
 

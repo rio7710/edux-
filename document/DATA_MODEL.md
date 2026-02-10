@@ -80,10 +80,14 @@ model Instructor {
   affiliation    String?
   avatarUrl      String?
   tagline        String?
+  bio            String?
   specialties    String[]
-  certifications String[]
+  certifications Json?            // [{name, issuer, date, fileUrl}]
   awards         String[]
   links          Json?
+  degrees        Json?            // [{name, school, major, year, fileUrl}]
+  careers        Json?            // [{company, role, period, description}]
+  publications   Json?            // [{title, type, year, publisher, url}]
   createdBy      String?
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
@@ -165,6 +169,7 @@ model CourseSchedule {
 model Template {
   id        String            @id @default(cuid())
   name      String
+  type      String            @default("course_intro")
   css       String
   html      String
   createdBy String?

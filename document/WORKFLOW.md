@@ -73,10 +73,20 @@
 ```json
 {
   "content": [
-    { "type": "text", "text": "{\"jobId\":\"rj_001\",\"status\":\"done\",\"url\":\"/pdf/course-c_123.pdf\"}" }
+    { "type": "text", "text": "{\"jobId\":\"rj_001\",\"status\":\"pending\"}" }
   ]
 }
 ```
+
+## 단계 4 — PDF 확인/다운로드
+
+현재 구현은 비동기 큐 기반이며, `render.*`는 작업 등록만 합니다.  
+생성된 PDF는 `public/pdf/`에 저장되며 파일명 규칙은 다음과 같습니다.
+
+- 코스: `course-<courseId>.pdf`
+- 일정: `schedule-<scheduleId>.pdf`
+
+UI에서는 작업 등록 후 `/pdf/<file>` 경로로 직접 다운로드합니다.
 
 ## 운영 규칙
 

@@ -22,7 +22,8 @@ edux/
 ├── prisma/
 │   └── schema.prisma          # 데이터 모델 정의 (11개 테이블, 2개 enum)
 ├── public/
-│   └── pdf/                   # 생성된 PDF 정적 서빙
+│   ├── pdf/                   # 생성된 PDF 정적 서빙
+│   └── uploads/               # 업로드 파일 정적 서빙
 ├── src/
 │   ├── mcp-server.ts          # StreamableHTTP 모드 MCP 서버 진입점
 │   ├── transport.ts           # SSE 모드 Express 서버 진입점 (port 7777)
@@ -69,7 +70,9 @@ MCP 클라이언트                        MCP 서버 (edux)
      │◀─ tool result ─────────────────────│
      │                                     │
      │── tools/call (render.coursePdf) ──▶│  큐 등록 → Puppeteer PDF 생성
-     │◀─ tool result (pdf URL) ───────────│  /pdf/course-<id>.pdf
+     │◀─ tool result (jobId, pending) ────│  RenderJob 생성
+     │                                     │
+     │ (백그라운드)                         │  워커 처리 → /pdf/course-<id>.pdf
 ```
 
 ## 전송 모드
@@ -87,6 +90,11 @@ Puppeteer는 Headless Chrome을 실행하므로 동시 요청 시 메모리 부�
 - `render.coursePdf` / `render.schedulePdf` 호출 시 RenderJob을 `pending` 상태로 생성
 - 워커(`src/workers/pdfWorker.ts`)가 큐에서 작업을 꺼내 `processing` → `done` / `failed`로 상태 전이
 - 기본 동시 실행 제한: **2** (`PDF_CONCURRENCY` 환경 변수로 조정 가능)
+
+### 렌더 데이터 구조 (현재 구현)
+
+- 코스 PDF: `course` 객체(포함: `Lectures`, `Schedules`)
+- 일정 PDF: `schedule` 객체(포함: `Course`, `Instructor`)
 
 ### 실행 방법
 

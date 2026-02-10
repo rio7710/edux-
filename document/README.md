@@ -16,6 +16,8 @@ MCP 표준 프로토콜(stdio / SSE)을 통해 **Claude Desktop**, **Claude CLI*
 - `API_REFERENCE.md` — MCP 전송 방식, JWT 인증, 정적 파일, 프로토콜 메시지 예시
 - `TEMPLATES.md` — Handlebars 템플릿 규칙과 플레이스홀더 (Course, Lecture 데이터 주입)
 - `TEMPLATE_GUIDE.md` — 템플릿 변수 가이드 (course/instructor 데이터 키)
+- `PDF_RENDER_GUIDE.md` — PDF 렌더 흐름, 파일명 규칙, 다운로드 정책
+- `SEED_SCRIPTS.md` — 샘플/템플릿 시드 스크립트 목록
 - `WORKFLOW.md` — 단계별 절차(한 단계 = 한 툴 호출), 에러 처리 규칙
 
 ### 운영/정책 문서

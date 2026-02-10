@@ -217,7 +217,7 @@ export const useAuthStore = create<AuthState>()(
 | `/courses/:id` | CourseDetailPage | 코스 상세/편집 |
 | `/instructors` | InstructorPage | 강사 목록/편집 |
 | `/templates` | TemplatePage | 템플릿 목록/편집/미리보기 |
-| `/render` | RenderPage | PDF 생성/다운로드 |
+| `/render` | RenderPage | PDF 생성 작업 등록 + 파일명 직접 다운로드 |
 
 ## 7. Ant Design 활용
 
@@ -280,6 +280,19 @@ npm run dev
 npm run build
 # dist/ 폴더에 정적 파일 생성
 ```
+
+## 11. RenderPage 동작 요약
+
+- `render.coursePdf` / `render.schedulePdf` 호출 시 `jobId`, `status: pending` 반환
+- 현재는 작업 상태 조회 API가 없으므로
+- PDF 생성 후 `/pdf/<파일명>` 경로로 직접 다운로드
+- 파일명 규칙: `course-<courseId>.pdf`, `schedule-<scheduleId>.pdf`
+
+## 12. 파일 업로드
+
+- 업로드 엔드포인트: `POST /api/upload`
+- 결과 URL: `/uploads/<file>`
+- 템플릿이나 강사 프로필 이미지에 사용할 경우 `/uploads/...` 경로를 사용
 
 ---
 
