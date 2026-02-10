@@ -144,7 +144,7 @@ export default function DashboardPage() {
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            <Title level={2} style={{ margin: 0, fontFamily: '"DM Serif Display", serif' }}>
+            <Title level={2} style={{ margin: 0, fontFamily: '"Noto Sans KR", sans-serif' }}>
               운영 대시보드
             </Title>
             <Text type="secondary">총합 · 오늘 · 주간 · 월간 지표를 한눈에 확인하세요.</Text>
