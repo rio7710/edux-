@@ -37,6 +37,12 @@ import {
     renderSchedulePdfSchema,
 } from "./tools/render.js"; // Import render tools
 import {
+    tableConfigGetHandler,
+    tableConfigGetSchema,
+    tableConfigUpsertHandler,
+    tableConfigUpsertSchema,
+} from "./tools/tableConfig.js";
+import {
     scheduleGetHandler,
     scheduleGetSchema,
     scheduleListHandler,
@@ -237,6 +243,22 @@ server.tool(
   "일정 데이터 + 템플릿으로 PDF를 생성합니다. (비동기 처리)",
   renderSchedulePdfSchema,
   async (args) => renderSchedulePdfHandler(args),
+);
+
+// 툴 등록: tableConfig.get
+server.tool(
+  "tableConfig.get",
+  "테이블 컬럼 설정 조회",
+  tableConfigGetSchema,
+  async (args) => tableConfigGetHandler(args),
+);
+
+// 툴 등록: tableConfig.upsert
+server.tool(
+  "tableConfig.upsert",
+  "테이블 컬럼 설정 저장",
+  tableConfigUpsertSchema,
+  async (args) => tableConfigUpsertHandler(args),
 );
 
 // 툴 등록: test.echo

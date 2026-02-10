@@ -1,5 +1,8 @@
 import express from 'express';
 import cors from 'cors';
+import multer from 'multer';
+import path from 'path';
+import crypto from 'crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 
@@ -56,6 +59,12 @@ import {
   renderSchedulePdfSchema,
   renderSchedulePdfHandler,
 } from './tools/render.js';
+import {
+  tableConfigGetSchema,
+  tableConfigGetHandler,
+  tableConfigUpsertSchema,
+  tableConfigUpsertHandler,
+} from './tools/tableConfig.js';
 import {
   testEchoSchema,
   testEchoHandler,
@@ -131,6 +140,8 @@ function createMcpServer(): McpServer {
   server.tool('template.previewHtml', 'Handlebars 템플릿 미리보기', templatePreviewHtmlSchema, async (args) => templatePreviewHtmlHandler(args));
   server.tool('render.coursePdf', '코스 PDF 생성', renderCoursePdfSchema, async (args) => renderCoursePdfHandler(args));
   server.tool('render.schedulePdf', '일정 PDF 생성', renderSchedulePdfSchema, async (args) => renderSchedulePdfHandler(args));
+  server.tool('tableConfig.get', '테이블 컬럼 설정 조회', tableConfigGetSchema, async (args) => tableConfigGetHandler(args));
+  server.tool('tableConfig.upsert', '테이블 컬럼 설정 저장', tableConfigUpsertSchema, async (args) => tableConfigUpsertHandler(args));
   server.tool('test.echo', '에코 테스트', testEchoSchema, async (args) => testEchoHandler(args));
 
   // User management tools
@@ -153,6 +164,40 @@ function createMcpServer(): McpServer {
 
 // Serve static PDF files
 app.use('/pdf', express.static('public/pdf'));
+
+// Serve uploaded files
+app.use('/uploads', express.static('public/uploads'));
+
+// File upload configuration
+const storage = multer.diskStorage({
+  destination: 'public/uploads',
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    const name = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}${ext}`;
+    cb(null, name);
+  },
+});
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype.startsWith('image/') || file.mimetype === 'application/pdf') {
+      cb(null, true);
+    } else {
+      cb(new Error('허용되지 않는 파일 형식입니다. (이미지 또는 PDF만 가능)'));
+    }
+  },
+});
+
+// File upload endpoint
+app.post('/api/upload', upload.single('file'), (req, res) => {
+  if (!req.file) {
+    res.status(400).json({ error: '파일이 없습니다.' });
+    return;
+  }
+  res.json({ url: `/uploads/${req.file.filename}` });
+});
 
 // Store active sessions: sessionId -> { transport, server }
 const sessions: Map<string, { transport: SSEServerTransport; server: McpServer }> = new Map();
