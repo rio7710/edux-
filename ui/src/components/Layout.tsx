@@ -260,34 +260,49 @@ export default function Layout() {
 
   useEffect(() => {
     if (!isAuthenticated || draftPrompted) return;
-    const sessionKey = 'draft:prompted:template';
+    const sessionKey = 'draft:prompted';
     if (sessionStorage.getItem(sessionKey)) {
       setDraftPrompted(true);
       return;
     }
-    const keys = Object.keys(localStorage || {}).filter((key) =>
+
+    let targetPath: string | null = null;
+    let modalTitle = '임시 저장된 작업이 있습니다';
+
+    const templateKeys = Object.keys(localStorage || {}).filter((key) =>
       key.startsWith('draft:template:'),
     );
-    if (keys.length === 0) return;
-    const key = keys[0];
-    const type = key.replace('draft:template:', '');
+    if (templateKeys.length > 0) {
+      const type = templateKeys[0].replace('draft:template:', '');
+      const draftParam = type || 'all';
+      targetPath = `/templates?draft=${draftParam}`;
+      modalTitle = '임시 저장된 템플릿이 있습니다';
+    } else if (localStorage.getItem('draft:course')) {
+      targetPath = '/courses?draft=1';
+      modalTitle = '임시 저장된 코스가 있습니다';
+    } else if (localStorage.getItem('draft:instructor')) {
+      targetPath = '/instructors?draft=1';
+      modalTitle = '임시 저장된 강사 정보가 있습니다';
+    }
+
+    if (!targetPath) return;
+
     setDraftPrompted(true);
     sessionStorage.setItem(sessionKey, '1');
     Modal.confirm({
-      title: '임시 저장된 템플릿이 있습니다',
+      title: modalTitle,
       content: '이어서 작성하시겠습니까?',
       okText: '이어서 작성',
       cancelText: '나중에',
       onOk: () => {
-        const draftParam = type || 'all';
-        navigate(`/templates?draft=${draftParam}`);
+        navigate(targetPath as string);
       },
     });
   }, [isAuthenticated, draftPrompted, navigate]);
 
   useEffect(() => {
     if (isAuthenticated) return;
-    const sessionKey = 'draft:prompted:template';
+    const sessionKey = 'draft:prompted';
     sessionStorage.removeItem(sessionKey);
     setDraftPrompted(false);
   }, [isAuthenticated]);

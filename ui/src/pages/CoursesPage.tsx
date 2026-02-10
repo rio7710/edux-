@@ -20,14 +20,16 @@ import {
     Tag,
     Switch,
     Table,
+    Alert,
 } from "antd";
 import type { ColumnType } from "antd/es/table";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api, mcpClient } from "../api/mcpClient";
 import { useAuth } from "../contexts/AuthContext";
 import { useTableConfig } from "../hooks/useTableConfig";
 import { buildColumns, NO_COLUMN_KEY } from "../utils/tableConfig";
 import { DEFAULT_COLUMNS } from "../utils/tableDefaults";
+import { useLocation, useNavigate } from "react-router-dom";
 
 interface Lecture {
   id: string;
@@ -66,7 +68,9 @@ export default function CoursesPage() {
   const [form] = Form.useForm();
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
-  const { accessToken } = useAuth();
+  const { accessToken, logout } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
   const [instructors, setInstructors] = useState<Instructor[]>([]);
   const { configs: columnConfigs } = useTableConfig(
     "courses",
@@ -82,6 +86,53 @@ export default function CoursesPage() {
   const [selectedInstructorRowKeys, setSelectedInstructorRowKeys] = useState<
     string[]
   >([]);
+
+  const draftKey = useMemo(() => "draft:course", []);
+
+  const saveDraft = (values?: Record<string, unknown>) => {
+    const raw = values || form.getFieldsValue();
+    const payload = {
+      ...raw,
+      id: editingCourse?.id || (raw.id as string) || undefined,
+      updatedAt: new Date().toISOString(),
+    };
+    localStorage.setItem(draftKey, JSON.stringify(payload));
+  };
+
+  const loadDraft = () => {
+    const stored = localStorage.getItem(draftKey);
+    if (!stored) return null;
+    try {
+      return JSON.parse(stored);
+    } catch {
+      return null;
+    }
+  };
+
+  const clearDraft = () => {
+    localStorage.removeItem(draftKey);
+  };
+
+  const isAuthError = (messageText: string) =>
+    /인증|토큰|로그인|권한|세션|MCP 연결 시간이 초과되었습니다|요청 시간이 초과되었습니다/.test(
+      messageText,
+    );
+
+  const handleSessionExpired = (reason?: string) => {
+    saveDraft();
+    Modal.confirm({
+      title: "세션이 만료되었습니다",
+      content: reason
+        ? `작성 중인 내용을 임시 저장했습니다. (${reason})`
+        : "작성 중인 내용을 임시 저장했습니다. 다시 로그인해주세요.",
+      okText: "로그인으로 이동",
+      cancelButtonProps: { style: { display: "none" } },
+      onOk: () => {
+        logout();
+        navigate("/login");
+      },
+    });
+  };
 
   const loadCourses = async () => {
     try {
@@ -117,6 +168,27 @@ export default function CoursesPage() {
     });
   }, []);
 
+  useEffect(() => {
+    const handler = () => {
+      saveDraft();
+    };
+    window.addEventListener("sessionExpired", handler);
+    return () => {
+      window.removeEventListener("sessionExpired", handler);
+    };
+  }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const draftParam = params.get("draft");
+    if (!draftParam) return;
+    const draft = loadDraft();
+    if (!draft) return;
+    form.setFieldsValue(draft);
+    setEditingCourse(draft.id ? ({ id: draft.id } as Course) : null);
+    setIsModalOpen(true);
+  }, [location.search]);
+
   const createMutation = useMutation({
     mutationFn: (data: Omit<Course, "id"> & { id?: string }) =>
       api.courseUpsert({ ...data, token: accessToken || undefined }),
@@ -125,9 +197,14 @@ export default function CoursesPage() {
       setIsModalOpen(false);
       form.resetFields();
       setEditingCourse(null);
+      clearDraft();
       loadCourses();
     },
     onError: (error: Error) => {
+      if (isAuthError(error.message)) {
+        handleSessionExpired(error.message);
+        return;
+      }
       message.error(`저장 실패: ${error.message}`);
     },
   });
@@ -146,6 +223,10 @@ export default function CoursesPage() {
       });
     },
     onError: (error: Error) => {
+      if (isAuthError(error.message)) {
+        handleSessionExpired(error.message);
+        return;
+      }
       message.error(`조회 실패: ${error.message}`);
     },
   });
@@ -188,6 +269,27 @@ export default function CoursesPage() {
       message.warning("로그인 후 이용해주세요.");
       return;
     }
+    const draft = loadDraft();
+    if (draft) {
+      Modal.confirm({
+        title: "임시 저장된 내용이 있습니다",
+        content: "불러와서 이어서 작성할까요?",
+        okText: "불러오기",
+        cancelText: "삭제",
+        onOk: () => {
+          form.setFieldsValue(draft);
+          setEditingCourse(draft.id ? ({ id: draft.id } as Course) : null);
+          setIsModalOpen(true);
+        },
+        onCancel: () => {
+          clearDraft();
+          setEditingCourse(null);
+          form.resetFields();
+          setIsModalOpen(true);
+        },
+      });
+      return;
+    }
     setEditingCourse(null);
     form.resetFields();
     setIsModalOpen(true);
@@ -204,6 +306,7 @@ export default function CoursesPage() {
         const fullCourse = result as Course;
         setEditingCourse(fullCourse);
         form.setFieldsValue({
+          id: fullCourse.id,
           ...fullCourse,
           instructorIds: fullCourse.instructorIds || [],
         });
@@ -219,7 +322,7 @@ export default function CoursesPage() {
       const values = await form.validateFields();
       createMutation.mutate({
         ...values,
-        id: editingCourse?.id,
+        id: editingCourse?.id || values.id,
         durationHours:
           values.durationHours !== null && values.durationHours !== undefined
             ? Number(values.durationHours)
@@ -454,6 +557,14 @@ export default function CoursesPage() {
         </Space>
       </div>
 
+      <Alert
+        type="info"
+        showIcon
+        message="코스 목록과 기본 정보를 관리합니다."
+        description="리스트 컬럼은 사이트 관리의 목차 설정에 따라 표시/순서가 변경됩니다."
+        style={{ marginBottom: 16 }}
+      />
+
       <Table
         columns={columns}
         dataSource={courses}
@@ -471,7 +582,17 @@ export default function CoursesPage() {
         confirmLoading={createMutation.isPending}
         width={600}
       >
-        <Form form={form} layout="vertical">
+        <Form
+          form={form}
+          layout="vertical"
+          onValuesChange={(_, allValues) => {
+            if (!isModalOpen) return;
+            saveDraft(allValues);
+          }}
+        >
+          <Form.Item name="id" hidden>
+            <Input />
+          </Form.Item>
           <Form.Item
             name="title"
             label="코스명"

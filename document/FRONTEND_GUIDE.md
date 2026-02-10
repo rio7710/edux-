@@ -288,7 +288,32 @@ npm run build
 - PDF 생성 후 `/pdf/<파일명>` 경로로 직접 다운로드
 - 파일명 규칙: `course-<courseId>.pdf`, `schedule-<scheduleId>.pdf`
 
-## 12. 파일 업로드
+## 12. 세션 만료 + 임시저장 UX
+
+### 적용 대상
+
+- 템플릿 편집
+- 코스 관리
+- 강사 관리
+
+### 동작 요약
+
+- 폼 입력 중 값 변경 시 `localStorage`에 임시 저장
+- 세션 만료 감지 시 자동 임시 저장 후 로그아웃 안내 모달
+- 로그인 후 임시 저장 데이터가 있으면 “이어서 작성” 모달 제공
+
+### 임시저장 키
+
+- 템플릿: `draft:template:<type>` (`course_intro` / `instructor_profile` / `all`)
+- 코스: `draft:course`
+- 강사: `draft:instructor`
+
+### 복구 흐름
+
+- 로그인 후 모달에서 “이어서 작성” 선택 시 해당 페이지로 이동
+- 페이지 진입 시 `?draft=1` 쿼리 감지 → 임시 저장 데이터 로드
+
+## 13. 파일 업로드
 
 - 업로드 엔드포인트: `POST /api/upload`
 - 결과 URL: `/uploads/<file>`

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   Button,
   Table,
@@ -12,6 +12,7 @@ import {
   Select,
   Divider,
   Avatar,
+  Alert,
 } from 'antd';
 import type { ColumnType } from 'antd/es/table';
 import {
@@ -30,6 +31,7 @@ import { useTableConfig } from '../hooks/useTableConfig';
 import { buildColumns, NO_COLUMN_KEY } from '../utils/tableConfig';
 import { DEFAULT_COLUMNS } from '../utils/tableDefaults';
 import type { RcFile } from 'antd/es/upload';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 interface Degree {
   name: string;
@@ -91,7 +93,9 @@ export default function InstructorsPage() {
   const [instructors, setInstructors] = useState<Instructor[]>([]);
   const [loading, setLoading] = useState(true);
   const [avatarUrl, setAvatarUrl] = useState<string>('');
-  const { accessToken, user } = useAuth();
+  const { accessToken, user, logout } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
   const { configs: columnConfigs } = useTableConfig(
     'instructors',
     DEFAULT_COLUMNS.instructors,
@@ -99,6 +103,56 @@ export default function InstructorsPage() {
   const isAdminOperator = user?.role === 'admin' || user?.role === 'operator';
   const [users, setUsers] = useState<Array<{ id: string; name: string; email: string; role: string }>>([]);
   const [usersLoading, setUsersLoading] = useState(false);
+
+  const draftKey = useMemo(() => 'draft:instructor', []);
+
+  const saveDraft = (values?: Record<string, unknown>) => {
+    const raw = values || form.getFieldsValue();
+    const payload = {
+      ...raw,
+      id: editingInstructor?.id || (raw.id as string) || undefined,
+      avatarUrl,
+      updatedAt: new Date().toISOString(),
+    };
+    localStorage.setItem(draftKey, JSON.stringify(payload));
+  };
+
+  const loadDraft = () => {
+    const stored = localStorage.getItem(draftKey);
+    if (!stored) return null;
+    try {
+      return JSON.parse(stored);
+    } catch {
+      return null;
+    }
+  };
+
+  const clearDraft = () => {
+    localStorage.removeItem(draftKey);
+  };
+
+  const isAuthError = (messageText: string) => {
+    return /인증|토큰|로그인|권한|세션|MCP 연결 시간이 초과되었습니다|요청 시간이 초과되었습니다/.test(
+      messageText,
+    );
+  };
+
+  const handleSessionExpired = (reason?: string) => {
+    saveDraft();
+    Modal.confirm({
+      title: '세션이 만료되었습니다',
+      content:
+        reason
+          ? `작성 중인 내용을 임시 저장했습니다. (${reason})`
+          : '작성 중인 내용을 임시 저장했습니다. 다시 로그인해주세요.',
+      okText: '로그인으로 이동',
+      cancelButtonProps: { style: { display: 'none' } },
+      onOk: () => {
+        logout();
+        navigate('/login');
+      },
+    });
+  };
 
   const loadInstructors = async () => {
     try {
@@ -117,6 +171,28 @@ export default function InstructorsPage() {
       loadInstructors();
     });
   }, []);
+
+  useEffect(() => {
+    const handler = () => {
+      saveDraft();
+    };
+    window.addEventListener('sessionExpired', handler);
+    return () => {
+      window.removeEventListener('sessionExpired', handler);
+    };
+  }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const draftParam = params.get('draft');
+    if (!draftParam) return;
+    const draft = loadDraft();
+    if (!draft) return;
+    form.setFieldsValue(draft);
+    setEditingInstructor(draft.id ? ({ id: draft.id } as Instructor) : null);
+    setAvatarUrl(draft.avatarUrl || '');
+    setIsModalOpen(true);
+  }, [location.search]);
 
   const loadUsers = async () => {
     if (!accessToken) return;
@@ -153,9 +229,14 @@ export default function InstructorsPage() {
       form.resetFields();
       setEditingInstructor(null);
       setAvatarUrl('');
+      clearDraft();
       loadInstructors();
     },
     onError: (error: Error) => {
+      if (isAuthError(error.message)) {
+        handleSessionExpired(error.message);
+        return;
+      }
       const friendlyMessage = parseValidationError(error.message);
       message.error(friendlyMessage);
     },
@@ -175,6 +256,10 @@ export default function InstructorsPage() {
       });
     },
     onError: (error: Error) => {
+      if (isAuthError(error.message)) {
+        handleSessionExpired(error.message);
+        return;
+      }
       message.error(`조회 실패: ${error.message}`);
     },
   });
@@ -200,6 +285,35 @@ export default function InstructorsPage() {
       message.warning('로그인 후 이용해주세요.');
       return;
     }
+    const draft = loadDraft();
+    if (draft) {
+      Modal.confirm({
+        title: '임시 저장된 내용이 있습니다',
+        content: '불러와서 이어서 작성할까요?',
+        okText: '불러오기',
+        cancelText: '삭제',
+        onOk: () => {
+          form.setFieldsValue(draft);
+          setEditingInstructor(draft.id ? ({ id: draft.id } as Instructor) : null);
+          setAvatarUrl(draft.avatarUrl || '');
+          setIsModalOpen(true);
+        },
+        onCancel: () => {
+          clearDraft();
+          setEditingInstructor(null);
+          setAvatarUrl('');
+          form.resetFields();
+          if (isAdminOperator) {
+            loadUsers();
+            form.setFieldsValue({ userId: undefined, name: '' });
+          } else {
+            form.setFieldsValue({ userId: user?.id, name: user?.name, email: user?.email });
+          }
+          setIsModalOpen(true);
+        },
+      });
+      return;
+    }
     setEditingInstructor(null);
     setAvatarUrl('');
     form.resetFields();
@@ -223,6 +337,7 @@ export default function InstructorsPage() {
       setEditingInstructor(full);
       setAvatarUrl(full.avatarUrl || '');
       form.setFieldsValue({
+        id: full.id,
         userId: full.userId,
         name: full.name,
         title: full.title,
@@ -264,7 +379,7 @@ export default function InstructorsPage() {
         careers: (values.careers || []).filter((c: Career) => c?.company || c?.role),
         publications: (values.publications || []).filter((p: Publication) => p?.title),
         certifications: (values.certifications || []).filter((c: Certification) => c?.name),
-        id: editingInstructor?.id,
+        id: editingInstructor?.id || values.id,
       };
 
       createMutation.mutate(data);
@@ -367,6 +482,14 @@ export default function InstructorsPage() {
         </Space>
       </div>
 
+      <Alert
+        type="info"
+        showIcon
+        message="강사 기본 정보와 이력 데이터를 관리합니다."
+        description="리스트 컬럼은 사이트 관리의 목차 설정에 따라 표시/순서가 변경됩니다."
+        style={{ marginBottom: 16 }}
+      />
+
       <Table
         columns={columns}
         dataSource={instructors}
@@ -384,7 +507,16 @@ export default function InstructorsPage() {
         width={800}
         styles={{ body: { maxHeight: '70vh', overflowY: 'auto' } }}
       >
-        <Form form={form} layout="vertical" initialValues={{ degrees: [], careers: [], publications: [], certifications: [] }}>
+        <Form
+          form={form}
+          layout="vertical"
+          initialValues={{ degrees: [], careers: [], publications: [], certifications: [] }}
+          onValuesChange={(_, allValues) => {
+            if (!isModalOpen) return;
+            saveDraft(allValues);
+          }}
+        >
+          <Form.Item name="id" hidden><Input /></Form.Item>
           {/* 기본 정보 */}
           <div style={{ display: 'flex', gap: 24 }}>
             <div style={{ textAlign: 'center' }}>
