@@ -27,6 +27,7 @@ class McpClient {
   private connected = false;
   private onConnectCallbacks: Array<() => void> = [];
   private baseUrl: string;
+  private connecting: Promise<void> | null = null;
 
   constructor() {
     const envBase = import.meta.env.VITE_MCP_BASE_URL as string | undefined;
@@ -35,70 +36,87 @@ class McpClient {
 
   async connect(): Promise<void> {
     if (this.connected) return;
+    if (this.connecting) return this.connecting;
 
-    return new Promise((resolve, reject) => {
-      const timeout = window.setTimeout(() => {
-        this.disconnect();
-        reject(new Error("MCP 연결 시간이 초과되었습니다."));
-      }, 8000);
+    const connectOnce = (baseUrl: string) =>
+      new Promise<void>((resolve, reject) => {
+        const timeout = window.setTimeout(() => {
+          this.disconnect();
+          reject(new Error("MCP 연결 시간이 초과되었습니다."));
+        }, 8000);
 
-      this.eventSource = new EventSource(`${this.baseUrl}/sse`);
+        const url = baseUrl ? `${baseUrl}/sse` : "/sse";
+        this.eventSource = new EventSource(url);
 
-      this.eventSource.onopen = () => {
-        console.log("[MCP] SSE connected");
-      };
+        this.eventSource.onopen = () => {
+          console.log("[MCP] SSE connected");
+        };
 
-      // Handle endpoint event (MCP SDK sends this as a named event)
-      this.eventSource.addEventListener("endpoint", (event: MessageEvent) => {
-        const endpointUrl = event.data;
-        console.log("[MCP] Received endpoint:", endpointUrl);
-        const url = new URL(endpointUrl, window.location.origin);
-        this.sessionId = url.searchParams.get("sessionId");
-        this.connected = true;
-        console.log("[MCP] Session ID:", this.sessionId);
-        this.onConnectCallbacks.forEach((cb) => cb());
-        window.clearTimeout(timeout);
-        resolve();
-      });
+        // Handle endpoint event (MCP SDK sends this as a named event)
+        this.eventSource.addEventListener("endpoint", (event: MessageEvent) => {
+          const endpointUrl = event.data;
+          console.log("[MCP] Received endpoint:", endpointUrl);
+          const endpoint = new URL(endpointUrl, window.location.origin);
+          this.sessionId = endpoint.searchParams.get("sessionId");
+          this.connected = true;
+          console.log("[MCP] Session ID:", this.sessionId);
+          this.onConnectCallbacks.forEach((cb) => cb());
+          window.clearTimeout(timeout);
+          resolve();
+        });
 
-      // Handle message events (responses from MCP server)
-      this.eventSource.addEventListener("message", (event: MessageEvent) => {
-        try {
-          const data = JSON.parse(event.data);
+        // Handle message events (responses from MCP server)
+        this.eventSource.addEventListener("message", (event: MessageEvent) => {
+          try {
+            const data = JSON.parse(event.data);
 
-          if (data.id !== undefined && this.pendingRequests.has(data.id)) {
-            const { resolve, reject } = this.pendingRequests.get(data.id)!;
-            this.pendingRequests.delete(data.id);
+            if (data.id !== undefined && this.pendingRequests.has(data.id)) {
+              const { resolve, reject } = this.pendingRequests.get(data.id)!;
+              this.pendingRequests.delete(data.id);
 
-            if (data.error) {
-              reject(new Error(data.error.message));
-            } else {
-              resolve(data.result);
+              if (data.error) {
+                reject(new Error(data.error.message));
+              } else {
+                resolve(data.result);
+              }
             }
+          } catch (e) {
+            console.error("[MCP] Failed to parse message:", e);
+            // If JSON parsing fails, we cannot determine which request this message was for.
+            // Reject all pending requests to prevent them from hanging indefinitely.
+            this.pendingRequests.forEach(({ reject }) => {
+              reject(
+                new Error(
+                  "Failed to parse server message. The request may not have been processed.",
+                ),
+              );
+            });
+            this.pendingRequests.clear();
           }
-        } catch (e) {
-          console.error("[MCP] Failed to parse message:", e);
-          // If JSON parsing fails, we cannot determine which request this message was for.
-          // Reject all pending requests to prevent them from hanging indefinitely.
-          this.pendingRequests.forEach(({ reject }) => {
-            reject(
-              new Error(
-                "Failed to parse server message. The request may not have been processed.",
-              ),
-            );
-          });
-          this.pendingRequests.clear();
-        }
+        });
+
+        this.eventSource.onerror = (error) => {
+          console.error("[MCP] SSE error:", error);
+          this.connected = false;
+          this.sessionId = null;
+          window.clearTimeout(timeout);
+          reject(error);
+        };
       });
 
-      this.eventSource.onerror = (error) => {
-        console.error("[MCP] SSE error:", error);
-        this.connected = false;
-        this.sessionId = null;
-        window.clearTimeout(timeout);
-        reject(error);
-      };
-    });
+    this.connecting = (async () => {
+      try {
+        await connectOnce(this.baseUrl);
+      } catch (err) {
+        const fallback = this.baseUrl ? "" : "http://localhost:7777";
+        this.baseUrl = fallback;
+        await connectOnce(this.baseUrl);
+      } finally {
+        this.connecting = null;
+      }
+    })();
+
+    return this.connecting;
   }
 
   disconnect(): void {
