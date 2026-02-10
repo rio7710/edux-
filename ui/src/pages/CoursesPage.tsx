@@ -21,9 +21,13 @@ import {
     Switch,
     Table,
 } from "antd";
+import type { ColumnType } from "antd/es/table";
 import { useEffect, useState } from "react";
 import { api, mcpClient } from "../api/mcpClient";
 import { useAuth } from "../contexts/AuthContext";
+import { useTableConfig } from "../hooks/useTableConfig";
+import { buildColumns, NO_COLUMN_KEY } from "../utils/tableConfig";
+import { DEFAULT_COLUMNS } from "../utils/tableDefaults";
 
 interface Lecture {
   id: string;
@@ -64,6 +68,10 @@ export default function CoursesPage() {
   const [loading, setLoading] = useState(true);
   const { accessToken } = useAuth();
   const [instructors, setInstructors] = useState<Instructor[]>([]);
+  const { configs: columnConfigs } = useTableConfig(
+    "courses",
+    DEFAULT_COLUMNS.courses,
+  );
 
   // Lecture state
   const [lectureModalOpen, setLectureModalOpen] = useState(false);
@@ -292,47 +300,54 @@ export default function CoursesPage() {
     }
   };
 
-  const columns = [
-    {
+  const columnMap: Record<string, ColumnType<Course>> = {
+    [NO_COLUMN_KEY]: {
       title: "No",
-      key: "no",
+      key: NO_COLUMN_KEY,
       width: 60,
-      render: (_: unknown, __: unknown, index: number) => index + 1,
+      render: (_: unknown, __: Course, index: number) => index + 1,
     },
-    {
-      title: "코스명",
-      dataIndex: "title",
-      key: "title",
-    },
-    {
+    id: { title: "ID", dataIndex: "id", key: "id", width: 200, ellipsis: true },
+    title: { title: "코스명", dataIndex: "title", key: "title" },
+    description: { title: "설명", dataIndex: "description", key: "description", ellipsis: true },
+    durationHours: {
       title: "시간",
       dataIndex: "durationHours",
       key: "durationHours",
       width: 80,
       render: (hours: number) => (hours ? `${hours}시간` : "-"),
     },
-    {
+    isOnline: {
       title: "온라인",
       dataIndex: "isOnline",
       key: "isOnline",
       width: 80,
       render: (isOnline: boolean) => (isOnline ? "예" : "아니오"),
     },
-    {
+    goal: { title: "목표", dataIndex: "goal", key: "goal", ellipsis: true },
+    notes: { title: "비고", dataIndex: "notes", key: "notes", ellipsis: true },
+    createdBy: {
       title: "등록자",
       dataIndex: "createdBy",
       key: "createdBy",
       width: 100,
       render: (createdBy: string) => createdBy || "-",
     },
-    {
-      title: "ID",
-      dataIndex: "id",
-      key: "id",
-      width: 200,
-      ellipsis: true,
+    createdAt: {
+      title: "등록일",
+      dataIndex: "createdAt",
+      key: "createdAt",
+      width: 160,
+      render: (date: string) => (date ? new Date(date).toLocaleString("ko-KR") : "-"),
     },
-    {
+    updatedAt: {
+      title: "수정일",
+      dataIndex: "updatedAt",
+      key: "updatedAt",
+      width: 160,
+      render: (date: string) => (date ? new Date(date).toLocaleString("ko-KR") : "-"),
+    },
+    actions: {
       title: "액션",
       key: "action",
       width: 150,
@@ -351,7 +366,8 @@ export default function CoursesPage() {
         </Space>
       ),
     },
-  ];
+  };
+  const columns = buildColumns<Course>(columnConfigs, columnMap);
 
   const lectureColumns = [
     {

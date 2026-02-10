@@ -11,6 +11,7 @@ import {
   Space,
   Tag,
 } from 'antd';
+import type { ColumnType } from 'antd/es/table';
 import {
   EditOutlined,
   EyeOutlined,
@@ -19,6 +20,9 @@ import {
 import { useMutation } from '@tanstack/react-query';
 import { api, mcpClient } from '../api/mcpClient';
 import { useAuth } from '../contexts/AuthContext';
+import { useTableConfig } from '../hooks/useTableConfig';
+import { buildColumns, NO_COLUMN_KEY } from '../utils/tableConfig';
+import { DEFAULT_COLUMNS } from '../utils/tableDefaults';
 
 interface User {
   id: string;
@@ -26,6 +30,7 @@ interface User {
   name: string;
   role: 'admin' | 'operator' | 'editor' | 'instructor' | 'viewer' | 'guest';
   isActive: boolean;
+  provider?: string;
   lastLoginAt?: string;
   createdAt?: string;
 }
@@ -66,6 +71,10 @@ export default function UsersPage() {
   const [viewUser, setViewUser] = useState<User | null>(null);
   const [form] = Form.useForm();
   const { accessToken, user: currentUser } = useAuth();
+  const { configs: columnConfigs } = useTableConfig(
+    'users',
+    DEFAULT_COLUMNS.users,
+  );
 
   const loadUsers = async () => {
     if (!accessToken) {
@@ -218,20 +227,17 @@ export default function UsersPage() {
     }
   };
 
-  const columns = [
-    {
-      title: '이메일',
-      dataIndex: 'email',
-      key: 'email',
-      width: 200,
-      ellipsis: true,
+  const columnMap: Record<string, ColumnType<User>> = {
+    [NO_COLUMN_KEY]: {
+      title: 'No',
+      key: NO_COLUMN_KEY,
+      width: 60,
+      render: (_: unknown, __: User, index: number) => index + 1,
     },
-    {
-      title: '이름',
-      dataIndex: 'name',
-      key: 'name',
-    },
-    {
+    id: { title: 'ID', dataIndex: 'id', key: 'id', width: 200, ellipsis: true },
+    email: { title: '이메일', dataIndex: 'email', key: 'email', width: 200, ellipsis: true },
+    name: { title: '이름', dataIndex: 'name', key: 'name' },
+    role: {
       title: '역할',
       dataIndex: 'role',
       key: 'role',
@@ -240,7 +246,7 @@ export default function UsersPage() {
         <Tag color={roleColors[role]}>{roleLabels[role]}</Tag>
       ),
     },
-    {
+    isActive: {
       title: '계정 상태',
       dataIndex: 'isActive',
       key: 'isActive',
@@ -251,7 +257,22 @@ export default function UsersPage() {
         </Tag>
       ),
     },
-    {
+    provider: {
+      title: '가입 경로',
+      dataIndex: 'provider',
+      key: 'provider',
+      width: 120,
+      render: (provider: string | undefined) => provider || '-',
+    },
+    createdAt: {
+      title: '가입일',
+      dataIndex: 'createdAt',
+      key: 'createdAt',
+      width: 180,
+      render: (date: string | undefined) =>
+        date ? new Date(date).toLocaleString('ko-KR') : '-',
+    },
+    lastLoginAt: {
       title: '마지막 로그인',
       dataIndex: 'lastLoginAt',
       key: 'lastLoginAt',
@@ -259,7 +280,7 @@ export default function UsersPage() {
       render: (date: string | undefined) =>
         date ? new Date(date).toLocaleString('ko-KR') : '-',
     },
-    {
+    actions: {
       title: '액션',
       key: 'action',
       width: 100,
@@ -279,7 +300,8 @@ export default function UsersPage() {
         </Space>
       ),
     },
-  ];
+  };
+  const columns = buildColumns<User>(columnConfigs, columnMap);
 
   return (
     <div>

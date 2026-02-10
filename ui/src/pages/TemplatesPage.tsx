@@ -10,10 +10,14 @@ import {
   Tabs,
   Select,
 } from 'antd';
+import type { ColumnType } from 'antd/es/table';
 import { PlusOutlined, EyeOutlined } from '@ant-design/icons';
 import { useMutation } from '@tanstack/react-query';
 import { api } from '../api/mcpClient';
 import { useAuth } from '../contexts/AuthContext';
+import { useTableConfig } from '../hooks/useTableConfig';
+import { buildColumns, NO_COLUMN_KEY } from '../utils/tableConfig';
+import { DEFAULT_COLUMNS } from '../utils/tableDefaults';
 
 interface Template {
   id: string;
@@ -22,6 +26,7 @@ interface Template {
   html: string;
   css: string;
   createdAt?: string;
+  updatedAt?: string;
   createdBy?: string;
 }
 
@@ -62,6 +67,8 @@ ul {
   line-height: 1.8;
 }`;
 
+const SAMPLE_COURSE_PREFIX = '[샘플]';
+
 type TemplatesPageProps = {
   title?: string;
   description?: string;
@@ -69,7 +76,6 @@ type TemplatesPageProps = {
   templateType?: string;
   defaultHtml?: string;
   defaultCss?: string;
-  sampleData?: Record<string, unknown>;
 };
 
 export default function TemplatesPage({
@@ -79,10 +85,10 @@ export default function TemplatesPage({
   templateType,
   defaultHtml: initialHtml = defaultHtml,
   defaultCss: initialCss = defaultCss,
-  sampleData,
 }: TemplatesPageProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [previewHtml, setPreviewHtml] = useState('');
+  const [tabPreviewHtml, setTabPreviewHtml] = useState('');
   const [previewTargetOpen, setPreviewTargetOpen] = useState(false);
   const [previewTargetId, setPreviewTargetId] = useState<string | undefined>();
   const [previewTargetType, setPreviewTargetType] = useState<
@@ -91,6 +97,10 @@ export default function TemplatesPage({
   const [form] = Form.useForm();
   const [templates, setTemplates] = useState<Template[]>([]);
   const { accessToken, user } = useAuth();
+  const { configs: columnConfigs } = useTableConfig(
+    'templates',
+    DEFAULT_COLUMNS.templates,
+  );
   const [courses, setCourses] = useState<{ id: string; title: string }[]>([]);
   const [instructors, setInstructors] = useState<{ id: string; name: string }[]>(
     [],
@@ -123,11 +133,21 @@ export default function TemplatesPage({
     },
   });
 
+  const extractHtml = (result: unknown): string => {
+    if (typeof result === 'string') return result;
+    if (result && typeof result === 'object') {
+      const obj = result as Record<string, unknown>;
+      return (obj.html as string) || (obj.text as string) || '';
+    }
+    return '';
+  };
+
+  // 버튼 미리보기 → 새 팝업 창
   const previewMutation = useMutation({
     mutationFn: ({ html, css, data }: { html: string; css: string; data: Record<string, unknown> }) =>
       api.templatePreviewHtml(html, css, data),
     onSuccess: (result: unknown) => {
-      const html = result as string;
+      const html = extractHtml(result);
       setPreviewHtml(html);
       const win = window.open('', '_blank', 'width=900,height=1200');
       if (win) {
@@ -141,9 +161,69 @@ export default function TemplatesPage({
     },
   });
 
+  // 탭 미리보기 → 인라인 iframe
+  const tabPreviewMutation = useMutation({
+    mutationFn: ({ html, css, data }: { html: string; css: string; data: Record<string, unknown> }) =>
+      api.templatePreviewHtml(html, css, data),
+    onSuccess: (result: unknown) => {
+      setTabPreviewHtml(extractHtml(result));
+    },
+    onError: (error: Error) => {
+      message.error(`미리보기 실패: ${error.message}`);
+    },
+  });
+
   useEffect(() => {
     listMutation.mutate();
   }, []);
+
+  const handleTabChange = async (key: string) => {
+    if (key !== 'preview') return;
+    const html = form.getFieldValue('html');
+    const css = form.getFieldValue('css');
+    if (!html || !css) return;
+
+    const currentType = templateType || form.getFieldValue('type');
+
+    try {
+      let data: Record<string, unknown> = {};
+
+      if (currentType === 'course_intro') {
+        // DB에서 [샘플] 과정 조회
+        const listResult = await api.courseList(50, 0) as any;
+        const sampleCourse = (listResult.courses || []).find(
+          (c: any) => c.title?.startsWith(SAMPLE_COURSE_PREFIX)
+        );
+        if (sampleCourse) {
+          const course = await api.courseGet(sampleCourse.id) as any;
+          data = {
+            course,
+            instructors: course.Instructors || [],
+            lectures: course.Lectures || [],
+            modules: course.Lectures || [],
+          };
+        } else {
+          message.warning('샘플 과정이 없습니다. 과정 관리에서 [샘플]로 시작하는 과정을 만들어주세요.');
+          return;
+        }
+      } else if (currentType === 'instructor_profile') {
+        const listResult = await api.instructorList(50, 0) as any;
+        const first = (listResult.instructors || [])[0];
+        if (first) {
+          const instructor = await api.instructorGet(first.id) as any;
+          data = {
+            instructor,
+            courses: instructor.Courses || [],
+            schedules: instructor.Schedules || [],
+          };
+        }
+      }
+
+      tabPreviewMutation.mutate({ html, css, data });
+    } catch (err: any) {
+      message.error(`샘플 데이터 로드 실패: ${err.message}`);
+    }
+  };
 
   const handleCreate = () => {
     if (!accessToken) {
@@ -157,6 +237,7 @@ export default function TemplatesPage({
       css: initialCss,
     });
     setPreviewHtml('');
+    setTabPreviewHtml('');
     setIsModalOpen(true);
   };
 
@@ -173,8 +254,14 @@ export default function TemplatesPage({
     }
   };
 
+  const getFormValues = () => ({
+    ...form.getFieldsValue(),
+    html: form.getFieldValue('html'),
+    css: form.getFieldValue('css'),
+  });
+
   const handlePreview = () => {
-    const values = form.getFieldsValue();
+    const values = getFormValues();
     const currentType = templateType || values.type;
     if (!currentType) {
       message.warning('구분을 먼저 선택하세요.');
@@ -207,10 +294,9 @@ export default function TemplatesPage({
             courses: instructor.Courses || [],
             schedules: instructor.Schedules || [],
           };
-          const a4Css = '@page { size: A4; margin: 20mm; } body{ margin:0; }';
           previewMutation.mutate({
             html: values.html,
-            css: `${a4Css}\n${values.css}`,
+            css: values.css,
             data,
           });
         }).catch((error: Error) => {
@@ -231,27 +317,11 @@ export default function TemplatesPage({
       return;
     }
 
-    const defaultSampleData = {
-      course: {
-        title: '샘플 코스',
-        description: '코스 설명입니다.',
-        goal: '교육 목표입니다.',
-      },
-      modules: [
-        { title: '모듈 1', hours: 2 },
-        { title: '모듈 2', hours: 3 },
-      ],
-    };
-    const a4Css = '@page { size: A4; margin: 20mm; } body{ margin:0; }';
-    previewMutation.mutate({
-      html: values.html,
-      css: `${a4Css}\n${values.css}`,
-      data: sampleData || defaultSampleData,
-    });
+    message.info('미리보기할 구분(과정 소개/강사 프로필)을 선택하세요.');
   };
 
   const handleConfirmPreviewTarget = async () => {
-    const values = form.getFieldsValue();
+    const values = getFormValues();
     const currentType = templateType || values.type;
     if (!currentType || !previewTargetId) {
       message.warning('대상을 선택하세요.');
@@ -270,10 +340,9 @@ export default function TemplatesPage({
           courseLectures: course.Lectures || [],
           courseSchedules: course.Schedules || [],
         };
-        const a4Css = '@page { size: A4; margin: 20mm; } body{ margin:0; }';
         previewMutation.mutate({
           html: values.html,
-          css: `${a4Css}\n${values.css}`,
+          css: values.css,
           data,
         });
         setPreviewTargetOpen(false);
@@ -291,10 +360,9 @@ export default function TemplatesPage({
           courses: instructor.Courses || [],
           schedules: instructor.Schedules || [],
         };
-        const a4Css = '@page { size: A4; margin: 20mm; } body{ margin:0; }';
         previewMutation.mutate({
           html: values.html,
-          css: `${a4Css}\n${values.css}`,
+          css: values.css,
           data,
         });
         setPreviewTargetOpen(false);
@@ -304,26 +372,22 @@ export default function TemplatesPage({
     }
   };
 
-  const columns = [
-    {
+  const columnMap: Record<string, ColumnType<Template>> = {
+    [NO_COLUMN_KEY]: {
       title: 'No',
-      key: 'no',
+      key: NO_COLUMN_KEY,
       width: 60,
-      render: (_: unknown, __: unknown, index: number) => index + 1,
+      render: (_: unknown, __: Template, index: number) => index + 1,
     },
-    {
+    id: {
       title: 'ID',
       dataIndex: 'id',
       key: 'id',
       width: 200,
       ellipsis: true,
     },
-    {
-      title: '템플릿명',
-      dataIndex: 'name',
-      key: 'name',
-    },
-    {
+    name: { title: '템플릿명', dataIndex: 'name', key: 'name' },
+    type: {
       title: '구분',
       key: 'type',
       width: 120,
@@ -332,21 +396,28 @@ export default function TemplatesPage({
         return label || typeLabel || '-';
       },
     },
-    {
+    createdAt: {
       title: '생성일',
       dataIndex: 'createdAt',
       key: 'createdAt',
       width: 180,
       render: (date: string) => date ? new Date(date).toLocaleString('ko-KR') : '-',
     },
-    {
+    updatedAt: {
+      title: '수정일',
+      dataIndex: 'updatedAt',
+      key: 'updatedAt',
+      width: 180,
+      render: (date: string) => date ? new Date(date).toLocaleString('ko-KR') : '-',
+    },
+    createdBy: {
       title: '등록자',
       dataIndex: 'createdBy',
       key: 'createdBy',
       width: 100,
       render: (createdBy: string) => createdBy || '-',
     },
-    {
+    actions: {
       title: '액션',
       key: 'action',
       width: 100,
@@ -357,12 +428,14 @@ export default function TemplatesPage({
           onClick={() => {
             form.setFieldsValue(record);
             setPreviewHtml('');
+            setTabPreviewHtml('');
             setIsModalOpen(true);
           }}
         />
       ),
     },
-  ];
+  };
+  const columns = buildColumns<Template>(columnConfigs, columnMap);
 
   return (
     <div>
@@ -436,12 +509,15 @@ export default function TemplatesPage({
           )}
 
           <Tabs
+            destroyInactiveTabPane={false}
+            onChange={handleTabChange}
             items={[
               {
                 key: 'html',
                 label: 'HTML (Handlebars)',
+                forceRender: true,
                 children: (
-                  <Form.Item name="html" rules={[{ required: true }]}>
+                  <Form.Item name="html" preserve rules={[{ required: true }]}>
                     <Input.TextArea rows={12} style={{ fontFamily: 'monospace' }} />
                   </Form.Item>
                 ),
@@ -449,26 +525,40 @@ export default function TemplatesPage({
               {
                 key: 'css',
                 label: 'CSS',
+                forceRender: true,
                 children: (
-                  <Form.Item name="css" rules={[{ required: true }]}>
+                  <Form.Item name="css" preserve rules={[{ required: true }]}>
                     <Input.TextArea rows={12} style={{ fontFamily: 'monospace' }} />
                   </Form.Item>
                 ),
               },
               {
                 key: 'preview',
-                label: '미리보기',
-                children: (
-                  <div
+                label: `미리보기 (샘플)${tabPreviewMutation.isPending ? ' ...' : ''}`,
+                children: tabPreviewHtml ? (
+                  <iframe
+                    srcDoc={tabPreviewHtml}
                     style={{
+                      width: '100%',
+                      height: 500,
                       border: '1px solid #d9d9d9',
                       borderRadius: 6,
-                      padding: 16,
-                      minHeight: 300,
-                      background: '#fff',
+                      background: '#e5e7eb',
                     }}
-                    dangerouslySetInnerHTML={{ __html: previewHtml }}
+                    title="미리보기"
                   />
+                ) : (
+                  <div style={{
+                    border: '1px solid #d9d9d9',
+                    borderRadius: 6,
+                    padding: 40,
+                    minHeight: 300,
+                    background: '#fafafa',
+                    textAlign: 'center',
+                    color: '#999',
+                  }}>
+                    탭을 선택하면 샘플 데이터로 미리보기가 자동 생성됩니다.
+                  </div>
                 ),
               },
             ]}

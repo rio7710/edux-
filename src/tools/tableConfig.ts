@@ -28,6 +28,10 @@ export const tableConfigUpsertSchema = {
     .describe("컬럼 설정 목록"),
 };
 
+function verifyAnyUser(token: string) {
+  return verifyToken(token) as { userId: string; role: string };
+}
+
 function requireAdminOperator(token: string) {
   const payload = verifyToken(token) as { userId: string; role: string };
   if (payload.role !== "admin" && payload.role !== "operator") {
@@ -41,7 +45,7 @@ export async function tableConfigGetHandler(args: {
   tableKey: string;
 }) {
   try {
-    requireAdminOperator(args.token);
+    verifyAnyUser(args.token);
 
     const items = await prisma.tableColumnConfig.findMany({
       where: {

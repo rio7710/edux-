@@ -340,6 +340,24 @@ export const api = {
     isActive?: boolean;
   }) => mcpClient.callTool("user.updateByAdmin", data),
 
+  // Table Config
+  tableConfigGet: (token: string, tableKey: string) =>
+    mcpClient.callTool("tableConfig.get", { token, tableKey }),
+
+  tableConfigUpsert: (data: {
+    token: string;
+    tableKey: string;
+    columns: Array<{
+      columnKey: string;
+      label: string;
+      customLabel?: string;
+      visible: boolean;
+      order: number;
+      width?: number;
+      fixed?: "left" | "right";
+    }>;
+  }) => mcpClient.callTool("tableConfig.upsert", data),
+
   // File Upload (REST, not MCP)
   uploadFile: async (file: File): Promise<{ url: string }> => {
     const formData = new FormData();

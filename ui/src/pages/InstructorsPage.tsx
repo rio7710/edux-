@@ -13,6 +13,7 @@ import {
   Divider,
   Avatar,
 } from 'antd';
+import type { ColumnType } from 'antd/es/table';
 import {
   PlusOutlined,
   EditOutlined,
@@ -25,6 +26,9 @@ import {
 import { useMutation } from '@tanstack/react-query';
 import { api, mcpClient } from '../api/mcpClient';
 import { useAuth } from '../contexts/AuthContext';
+import { useTableConfig } from '../hooks/useTableConfig';
+import { buildColumns, NO_COLUMN_KEY } from '../utils/tableConfig';
+import { DEFAULT_COLUMNS } from '../utils/tableDefaults';
 import type { RcFile } from 'antd/es/upload';
 
 interface Degree {
@@ -88,6 +92,10 @@ export default function InstructorsPage() {
   const [loading, setLoading] = useState(true);
   const [avatarUrl, setAvatarUrl] = useState<string>('');
   const { accessToken, user } = useAuth();
+  const { configs: columnConfigs } = useTableConfig(
+    'instructors',
+    DEFAULT_COLUMNS.instructors,
+  );
   const isAdminOperator = user?.role === 'admin' || user?.role === 'operator';
   const [users, setUsers] = useState<Array<{ id: string; name: string; email: string; role: string }>>([]);
   const [usersLoading, setUsersLoading] = useState(false);
@@ -265,15 +273,15 @@ export default function InstructorsPage() {
     }
   };
 
-  const columns = [
-    {
-      title: 'ID',
-      dataIndex: 'id',
-      key: 'id',
-      width: 180,
-      ellipsis: true,
+  const columnMap: Record<string, ColumnType<Instructor>> = {
+    [NO_COLUMN_KEY]: {
+      title: 'No',
+      key: NO_COLUMN_KEY,
+      width: 60,
+      render: (_: unknown, __: Instructor, index: number) => index + 1,
     },
-    {
+    id: { title: 'ID', dataIndex: 'id', key: 'id', width: 180, ellipsis: true },
+    userId: {
       title: '사용자 ID',
       dataIndex: 'userId',
       key: 'userId',
@@ -281,43 +289,41 @@ export default function InstructorsPage() {
       ellipsis: true,
       render: (userId: string) => userId || '-',
     },
-    {
-      title: '이름',
-      dataIndex: 'name',
-      key: 'name',
+    name: { title: '이름', dataIndex: 'name', key: 'name' },
+    title: { title: '직함', dataIndex: 'title', key: 'title' },
+    email: { title: '이메일', dataIndex: 'email', key: 'email' },
+    phone: { title: '전화번호', dataIndex: 'phone', key: 'phone' },
+    affiliation: { title: '소속', dataIndex: 'affiliation', key: 'affiliation' },
+    avatarUrl: {
+      title: '프로필 이미지',
+      dataIndex: 'avatarUrl',
+      key: 'avatarUrl',
+      render: (url: string) => (url ? '있음' : '-'),
     },
-    {
-      title: '직함',
-      dataIndex: 'title',
-      key: 'title',
-    },
-    {
-      title: '소속',
-      dataIndex: 'affiliation',
-      key: 'affiliation',
-    },
-    {
-      title: '전문분야',
-      dataIndex: 'specialties',
-      key: 'specialties',
-      render: (specialties: string[] | undefined) => {
-        const arr = Array.isArray(specialties) ? specialties : [];
-        return (
-          <>
-            {arr.slice(0, 2).map(s => <Tag key={s}>{s}</Tag>)}
-            {arr.length > 2 && <Tag>+{arr.length - 2}</Tag>}
-          </>
-        );
-      },
-    },
-    {
+    tagline: { title: '한줄 소개', dataIndex: 'tagline', key: 'tagline', ellipsis: true },
+    bio: { title: '자기소개', dataIndex: 'bio', key: 'bio', ellipsis: true },
+    createdBy: {
       title: '등록자',
       dataIndex: 'createdBy',
       key: 'createdBy',
       width: 100,
       render: (createdBy: string) => createdBy || '-',
     },
-    {
+    createdAt: {
+      title: '등록일',
+      dataIndex: 'createdAt',
+      key: 'createdAt',
+      width: 160,
+      render: (date: string) => (date ? new Date(date).toLocaleString('ko-KR') : '-'),
+    },
+    updatedAt: {
+      title: '수정일',
+      dataIndex: 'updatedAt',
+      key: 'updatedAt',
+      width: 160,
+      render: (date: string) => (date ? new Date(date).toLocaleString('ko-KR') : '-'),
+    },
+    actions: {
       title: '액션',
       key: 'action',
       width: 150,
@@ -336,7 +342,8 @@ export default function InstructorsPage() {
         </Space>
       ),
     },
-  ];
+  };
+  const columns = buildColumns<Instructor>(columnConfigs, columnMap);
 
   const sectionStyle = { marginBottom: 0 };
   const dividerStyle = { margin: '16px 0 8px' };
