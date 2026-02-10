@@ -11,7 +11,7 @@ import {
   Select,
 } from 'antd';
 import type { ColumnType } from 'antd/es/table';
-import { PlusOutlined, EyeOutlined } from '@ant-design/icons';
+import { PlusOutlined, EyeOutlined, DeleteOutlined } from '@ant-design/icons';
 import { useMutation } from '@tanstack/react-query';
 import { api } from '../api/mcpClient';
 import { useAuth } from '../contexts/AuthContext';
@@ -574,19 +574,52 @@ export default function TemplatesPage({
     actions: {
       title: '액션',
       key: 'action',
-      width: 100,
+      width: 140,
       render: (_: unknown, record: Template) => (
-        <Button
-          icon={<EyeOutlined />}
-          size="small"
-          onClick={() => {
-            form.setFieldsValue(record);
-            setEditingTemplateId(record.id);
-            setPreviewHtml('');
-            setTabPreviewHtml('');
-            setIsModalOpen(true);
-          }}
-        />
+        <Space>
+          <Button
+            icon={<EyeOutlined />}
+            size="small"
+            onClick={() => {
+              form.setFieldsValue(record);
+              setEditingTemplateId(record.id);
+              setPreviewHtml('');
+              setTabPreviewHtml('');
+              setIsModalOpen(true);
+            }}
+          />
+          <Button
+            danger
+            icon={<DeleteOutlined />}
+            size="small"
+            onClick={() => {
+              if (!accessToken) {
+                message.warning('로그인 후 이용해주세요.');
+                return;
+              }
+              Modal.confirm({
+                title: '템플릿을 삭제할까요?',
+                content: '삭제하면 복구할 수 없습니다.',
+                okText: '삭제',
+                okButtonProps: { danger: true },
+                cancelText: '취소',
+                onOk: async () => {
+                  try {
+                    await api.templateDelete({ id: record.id, token: accessToken });
+                    message.success('삭제되었습니다');
+                    listMutation.mutate();
+                  } catch (error: any) {
+                    if (isAuthError(error.message)) {
+                      handleSessionExpired(error.message);
+                      return;
+                    }
+                    message.error(`삭제 실패: ${error.message}`);
+                  }
+                },
+              });
+            }}
+          />
+        </Space>
       ),
     },
   };

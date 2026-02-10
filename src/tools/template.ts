@@ -51,6 +51,11 @@ export const templatePreviewHtmlSchema = {
   data: z.record(z.any()).describe('템플릿에 주입할 데이터 (course, instructor, schedule 등)'),
 };
 
+export const templateDeleteSchema = {
+  id: z.string().describe('템플릿 ID'),
+  token: z.string().optional().describe('인증 토큰 (관리자/운영자 권한 확인용)'),
+};
+
 export const templateUpsertSchema = {
   id: z.string().optional().describe('템플릿 ID (수정 시)'),
   name: z.string().describe('템플릿 이름'),
@@ -288,6 +293,35 @@ export async function templatePreviewHtmlHandler(args: {
     const message = error instanceof Error ? error.message : 'Unknown error';
     return {
       content: [{ type: 'text' as const, text: `Failed to preview HTML: ${message}` }],
+      isError: true,
+    };
+  }
+}
+
+export async function templateDeleteHandler(args: { id: string; token?: string }) {
+  try {
+    if (!args.token) {
+      return {
+        content: [{ type: 'text' as const, text: '권한이 없습니다.' }],
+        isError: true,
+      };
+    }
+    const payload = verifyToken(args.token);
+    if (payload.role !== 'admin' && payload.role !== 'operator') {
+      return {
+        content: [{ type: 'text' as const, text: '관리자/운영자만 삭제할 수 있습니다.' }],
+        isError: true,
+      };
+    }
+
+    await prisma.template.delete({ where: { id: args.id } });
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify({ id: args.id }) }],
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return {
+      content: [{ type: 'text' as const, text: `Failed to delete template: ${message}` }],
       isError: true,
     };
   }

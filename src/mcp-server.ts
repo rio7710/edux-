@@ -61,6 +61,8 @@ import {
     templatePreviewHtmlSchema,
     templateUpsertHandler,
     templateUpsertSchema,
+    templateDeleteHandler,
+    templateDeleteSchema,
 } from "./tools/template.js";
 import { testEchoHandler, testEchoSchema } from "./tools/test.js";
 import {
@@ -245,6 +247,12 @@ server.tool(
   "Handlebars 템플릿에 데이터를 주입하여 완성된 HTML을 반환",
   templatePreviewHtmlSchema,
   async (args) => templatePreviewHtmlHandler(args),
+);
+server.tool(
+  "template.delete",
+  "템플릿 삭제",
+  templateDeleteSchema,
+  async (args) => templateDeleteHandler(args),
 );
 
 // 툴 등록: render.coursePdf

@@ -338,6 +338,9 @@ export const api = {
     data: Record<string, unknown>,
   ) => mcpClient.callTool("template.previewHtml", { html, css, data }),
 
+  templateDelete: (data: { id: string; token?: string }) =>
+    mcpClient.callTool("template.delete", data),
+
   // Render
   renderCoursePdf: (templateId: string, courseId: string) =>
     mcpClient.callTool("render.coursePdf", { templateId, courseId }),
