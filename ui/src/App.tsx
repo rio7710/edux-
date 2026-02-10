@@ -11,6 +11,7 @@ import InstructorsPage from './pages/InstructorsPage';
 import TemplatesHubPage from './pages/TemplatesHubPage';
 import RenderPage from './pages/RenderPage';
 import { TestEchoPage } from './pages/TestEchoPage';
+import DashboardPage from './pages/DashboardPage';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import ProfilePage from './pages/ProfilePage';
@@ -48,7 +49,8 @@ function AppContent() {
 
         {/* Main app routes (with layout) */}
         <Route path="/" element={<Layout />}>
-          <Route index element={<Navigate to="/courses" replace />} />
+          <Route index element={<Navigate to="/dashboard" replace />} />
+          <Route path="dashboard" element={<DashboardPage />} />
           <Route path="courses" element={<CoursesPage />} />
           <Route path="instructors" element={<InstructorsPage />} />
           <Route path="templates" element={<TemplatesHubPage />} />

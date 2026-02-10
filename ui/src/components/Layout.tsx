@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import type { MenuProps } from 'antd';
 import {
   BookOutlined,
+  DashboardOutlined,
   UserOutlined,
   FileTextOutlined,
   FilePdfOutlined,
@@ -34,6 +35,11 @@ export default function Layout() {
 
   // Build menu items dynamically
   const menuItems = [
+    {
+      key: '/dashboard',
+      icon: <DashboardOutlined />,
+      label: '대시보드',
+    },
     {
       key: '/courses',
       icon: <BookOutlined />,

@@ -30,7 +30,7 @@ export default function LoginPage() {
     try {
       await login(values.email, values.password);
       message.success('로그인되었습니다!');
-      navigate('/courses');
+      navigate('/dashboard');
     } catch (error) {
       const err = error as Error;
       message.error(parseError(err.message));
