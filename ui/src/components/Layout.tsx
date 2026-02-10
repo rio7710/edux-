@@ -286,6 +286,13 @@ export default function Layout() {
   }, [isAuthenticated, draftPrompted, navigate]);
 
   useEffect(() => {
+    if (isAuthenticated) return;
+    const sessionKey = 'draft:prompted:template';
+    sessionStorage.removeItem(sessionKey);
+    setDraftPrompted(false);
+  }, [isAuthenticated]);
+
+  useEffect(() => {
     const handleTitle = (event: Event) => {
       const customEvent = event as CustomEvent<string>;
       if (customEvent.detail) {
