@@ -9,6 +9,7 @@ import {
   LogoutOutlined,
   LoginOutlined,
   TeamOutlined,
+  SettingOutlined,
 } from '@ant-design/icons';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -52,6 +53,12 @@ export default function Layout() {
         icon: <TeamOutlined />,
         label: '회원관리',
         disabled: user?.role !== 'admin',
+      },
+      {
+        key: '/admin/site-settings',
+        icon: <SettingOutlined />,
+        label: '사이트 관리',
+        disabled: !(user?.role === 'admin' || user?.role === 'operator'),
       },
     ] : []),
   ];
