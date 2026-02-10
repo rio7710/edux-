@@ -252,6 +252,11 @@ export default function Layout() {
 
   useEffect(() => {
     if (!isAuthenticated || draftPrompted) return;
+    const sessionKey = 'draft:prompted:template';
+    if (sessionStorage.getItem(sessionKey)) {
+      setDraftPrompted(true);
+      return;
+    }
     const keys = Object.keys(localStorage || {}).filter((key) =>
       key.startsWith('draft:template:'),
     );
@@ -259,6 +264,7 @@ export default function Layout() {
     const key = keys[0];
     const type = key.replace('draft:template:', '');
     setDraftPrompted(true);
+    sessionStorage.setItem(sessionKey, '1');
     Modal.confirm({
       title: '임시 저장된 템플릿이 있습니다',
       content: '이어서 작성하시겠습니까?',
