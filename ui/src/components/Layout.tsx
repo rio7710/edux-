@@ -197,6 +197,25 @@ export default function Layout() {
   }, [accessToken]);
 
   useEffect(() => {
+    const setFavicon = (href: string) => {
+      const link = document.querySelector("link[rel='icon']") as HTMLLinkElement | null;
+      if (link) {
+        link.href = href;
+      }
+    };
+    const handleFavicon = (event: Event) => {
+      const customEvent = event as CustomEvent<string>;
+      if (customEvent.detail !== undefined) {
+        setFavicon(customEvent.detail || '/favicon.svg');
+      }
+    };
+    window.addEventListener('siteFaviconUpdated', handleFavicon as EventListener);
+    return () => {
+      window.removeEventListener('siteFaviconUpdated', handleFavicon as EventListener);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!accessToken) {
       setLogoUrl('');
       setSiteTitle('Edux - HR 강의 계획서 관리');
@@ -229,6 +248,28 @@ export default function Layout() {
       cancelled = true;
     };
   }, [accessToken]);
+
+  useEffect(() => {
+    const handleTitle = (event: Event) => {
+      const customEvent = event as CustomEvent<string>;
+      if (customEvent.detail) {
+        setSiteTitle(customEvent.detail);
+        document.title = customEvent.detail;
+      }
+    };
+    const handleLogo = (event: Event) => {
+      const customEvent = event as CustomEvent<string>;
+      if (customEvent.detail !== undefined) {
+        setLogoUrl(customEvent.detail);
+      }
+    };
+    window.addEventListener('siteTitleUpdated', handleTitle as EventListener);
+    window.addEventListener('siteLogoUpdated', handleLogo as EventListener);
+    return () => {
+      window.removeEventListener('siteTitleUpdated', handleTitle as EventListener);
+      window.removeEventListener('siteLogoUpdated', handleLogo as EventListener);
+    };
+  }, []);
 
   const formatRemaining = (ms: number | null) => {
     if (ms === null) return '-';

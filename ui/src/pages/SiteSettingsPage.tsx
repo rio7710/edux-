@@ -373,6 +373,11 @@ export default function SiteSettingsPage() {
                           })
                             .then(() => {
                               setFaviconDirty(false);
+                              window.dispatchEvent(
+                                new CustomEvent('siteFaviconUpdated', {
+                                  detail: faviconUrl || '',
+                                }),
+                              );
                               message.success('파비콘 설정이 저장되었습니다.');
                             })
                             .catch((err: Error) => {
@@ -432,6 +437,11 @@ export default function SiteSettingsPage() {
                           })
                             .then(() => {
                               setLogoDirty(false);
+                              window.dispatchEvent(
+                                new CustomEvent('siteLogoUpdated', {
+                                  detail: logoUrl || '',
+                                }),
+                              );
                               message.success('로고 설정이 저장되었습니다.');
                             })
                             .catch((err: Error) => {
@@ -478,6 +488,12 @@ export default function SiteSettingsPage() {
                           })
                             .then(() => {
                               setTitleDirty(false);
+                              window.dispatchEvent(
+                                new CustomEvent('siteTitleUpdated', {
+                                  detail:
+                                    siteTitle || 'Edux - HR 강의 계획서 관리',
+                                }),
+                              );
                               message.success('사이트 타이틀이 저장되었습니다.');
                             })
                             .catch((err: Error) => {
