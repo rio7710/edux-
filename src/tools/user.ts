@@ -333,7 +333,12 @@ export async function userRefreshTokenHandler(args: {
         ? setting.value
         : Number((setting?.value as any)?.minutes) || 10;
 
-    const accessToken = signAccessTokenWithExpiry(payload, `${minutes}m`);
+    const cleanPayload: JwtPayload = {
+      userId: payload.userId,
+      email: payload.email,
+      role: payload.role,
+    };
+    const accessToken = signAccessTokenWithExpiry(cleanPayload, `${minutes}m`);
 
     return {
       content: [
@@ -365,7 +370,12 @@ export async function userIssueTestTokenHandler(args: {
         isError: true,
       };
     }
-    const accessToken = signAccessTokenWithExpiry(payload, `${args.minutes}m`);
+    const cleanPayload: JwtPayload = {
+      userId: payload.userId,
+      email: payload.email,
+      role: payload.role,
+    };
+    const accessToken = signAccessTokenWithExpiry(cleanPayload, `${args.minutes}m`);
     return {
       content: [
         { type: "text" as const, text: JSON.stringify({ accessToken, minutes: args.minutes }) },
