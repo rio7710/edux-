@@ -95,6 +95,7 @@ export default function TemplatesPage({
   const [previewTargetType, setPreviewTargetType] = useState<
     'course_intro' | 'instructor_profile' | undefined
   >(undefined);
+  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
   const [form] = Form.useForm();
   const [templates, setTemplates] = useState<Template[]>([]);
   const { accessToken, user, logout } = useAuth();
@@ -163,17 +164,16 @@ export default function TemplatesPage({
     });
   };
 
-  const createMutation = useMutation({
-    mutationFn: (data: { name: string; type: string; html: string; css: string }) =>
-      api.templateCreate({ ...data, token: accessToken || undefined }),
+  const saveMutation = useMutation({
+    mutationFn: (data: { id?: string; name: string; type: string; html: string; css: string }) =>
+      api.templateUpsert({ ...data, token: accessToken || undefined }),
     onSuccess: (result: unknown) => {
-      const templateResult = result as { id: string; name: string };
-      message.success('템플릿이 저장되었습니다');
+      message.success(editingTemplateId ? '템플릿이 수정되었습니다' : '템플릿이 저장되었습니다');
       setIsModalOpen(false);
-      const values = form.getFieldsValue();
-      setTemplates(prev => [...prev, { ...values, id: templateResult.id }]);
+      setEditingTemplateId(null);
       form.resetFields();
       clearDraft();
+      listMutation.mutate();
     },
     onError: (error: Error) => {
       if (isAuthError(error.message)) {
@@ -331,6 +331,7 @@ export default function TemplatesPage({
       message.warning('로그인 후 이용해주세요.');
       return;
     }
+    setEditingTemplateId(null);
     const draft = loadDraft();
     if (draft) {
       Modal.confirm({
@@ -377,7 +378,7 @@ export default function TemplatesPage({
     }
     try {
       const values = await form.validateFields();
-      createMutation.mutate(values);
+      saveMutation.mutate({ ...values, id: editingTemplateId || undefined });
     } catch (error) {
       // Validation failed
     }
@@ -580,6 +581,7 @@ export default function TemplatesPage({
           size="small"
           onClick={() => {
             form.setFieldsValue(record);
+            setEditingTemplateId(record.id);
             setPreviewHtml('');
             setTabPreviewHtml('');
             setIsModalOpen(true);
@@ -629,7 +631,7 @@ export default function TemplatesPage({
           <Button key="preview" onClick={handlePreview} loading={previewMutation.isPending}>
             미리보기
           </Button>,
-          <Button key="save" type="primary" onClick={handleSubmit} loading={createMutation.isPending}>
+          <Button key="save" type="primary" onClick={handleSubmit} loading={saveMutation.isPending}>
             저장
           </Button>,
         ]}

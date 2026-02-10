@@ -317,6 +317,16 @@ export const api = {
     token?: string;
   }) => mcpClient.callTool("template.create", data),
 
+  templateUpsert: (data: {
+    id?: string;
+    name: string;
+    type: string;
+    html: string;
+    css: string;
+    changelog?: string;
+    token?: string;
+  }) => mcpClient.callTool("template.upsert", data),
+
   templateGet: (id: string) => mcpClient.callTool("template.get", { id }),
 
   templateList: (page = 1, pageSize = 20, type?: string) =>

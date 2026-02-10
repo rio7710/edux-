@@ -3,6 +3,8 @@ import { prisma } from '../services/prisma.js';
 import Handlebars from 'handlebars';
 import { verifyToken } from '../services/jwt.js';
 
+Handlebars.registerHelper('plus1', (val: number) => val + 1);
+
 // createdBy ID를 사용자 이름으로 변환하는 헬퍼 함수
 async function resolveCreatorNames<T extends { createdBy?: string | null }>(
   items: T[]
@@ -47,6 +49,16 @@ export const templatePreviewHtmlSchema = {
   html: z.string().describe('Handlebars 템플릿'),
   css: z.string().describe('CSS'),
   data: z.record(z.any()).describe('템플릿에 주입할 데이터 (course, instructor, schedule 등)'),
+};
+
+export const templateUpsertSchema = {
+  id: z.string().optional().describe('템플릿 ID (수정 시)'),
+  name: z.string().describe('템플릿 이름'),
+  type: z.string().describe('템플릿 타입 (instructor_profile | course_intro 등)'),
+  html: z.string().describe('Handlebars 템플릿 HTML'),
+  css: z.string().describe('템플릿 CSS'),
+  changelog: z.string().optional().describe('변경 로그'),
+  token: z.string().optional().describe('인증 토큰 (등록자 추적용)'),
 };
 
 // 핸들러 정의
@@ -94,6 +106,91 @@ export async function templateCreateHandler(args: {
     const message = error instanceof Error ? error.message : 'Unknown error';
     return {
       content: [{ type: 'text' as const, text: `Failed to create template: ${message}` }],
+      isError: true,
+    };
+  }
+}
+
+export async function templateUpsertHandler(args: {
+  id?: string;
+  name: string;
+  type: string;
+  html: string;
+  css: string;
+  changelog?: string;
+  token?: string;
+}) {
+  try {
+    let createdBy: string | undefined;
+    if (args.token) {
+      try {
+        const payload = verifyToken(args.token);
+        createdBy = payload.userId;
+      } catch {
+        // ignore token errors
+      }
+    }
+
+    if (!args.id) {
+      const template = await prisma.template.create({
+        data: {
+          name: args.name,
+          type: args.type,
+          html: args.html,
+          css: args.css,
+          createdBy,
+          Versions: {
+            create: {
+              version: 1,
+              html: args.html,
+              css: args.css,
+              changelog: args.changelog || 'Initial version',
+            },
+          },
+        },
+      });
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify({ id: template.id, name: template.name }) }],
+      };
+    }
+
+    const existing = await prisma.template.findUnique({
+      where: { id: args.id },
+      include: { Versions: { orderBy: { version: 'desc' }, take: 1 } },
+    });
+    if (!existing) {
+      return {
+        content: [{ type: 'text' as const, text: `Template not found: ${args.id}` }],
+        isError: true,
+      };
+    }
+
+    const nextVersion = (existing.Versions?.[0]?.version || 0) + 1;
+    const updated = await prisma.template.update({
+      where: { id: args.id },
+      data: {
+        name: args.name,
+        type: args.type,
+        html: args.html,
+        css: args.css,
+        Versions: {
+          create: {
+            version: nextVersion,
+            html: args.html,
+            css: args.css,
+            changelog: args.changelog || `Updated to v${nextVersion}`,
+          },
+        },
+      },
+    });
+
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify({ id: updated.id, name: updated.name }) }],
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return {
+      content: [{ type: 'text' as const, text: `Failed to upsert template: ${message}` }],
       isError: true,
     };
   }

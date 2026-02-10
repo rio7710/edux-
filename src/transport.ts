@@ -52,6 +52,8 @@ import {
   templateListHandler,
   templatePreviewHtmlSchema,
   templatePreviewHtmlHandler,
+  templateUpsertSchema,
+  templateUpsertHandler,
 } from './tools/template.js';
 import {
   renderCoursePdfSchema,
@@ -145,6 +147,7 @@ function createMcpServer(): McpServer {
   server.tool('schedule.get', '일정 단건 조회', scheduleGetSchema, async (args) => scheduleGetHandler(args));
   server.tool('schedule.list', '일정 목록 조회', scheduleListSchema, async (args) => scheduleListHandler(args));
   server.tool('template.create', '새 템플릿 생성', templateCreateSchema, async (args) => templateCreateHandler(args));
+  server.tool('template.upsert', '템플릿 생성 또는 수정', templateUpsertSchema, async (args) => templateUpsertHandler(args));
   server.tool('template.get', '템플릿 단건 조회', templateGetSchema, async (args) => templateGetHandler(args));
   server.tool('template.list', '템플릿 목록 조회', templateListSchema, async (args) => templateListHandler(args));
   server.tool('template.previewHtml', 'Handlebars 템플릿 미리보기', templatePreviewHtmlSchema, async (args) => templatePreviewHtmlHandler(args));

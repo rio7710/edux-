@@ -59,6 +59,8 @@ import {
     templateListSchema,
     templatePreviewHtmlHandler,
     templatePreviewHtmlSchema,
+    templateUpsertHandler,
+    templateUpsertSchema,
 } from "./tools/template.js";
 import { testEchoHandler, testEchoSchema } from "./tools/test.js";
 import {
@@ -213,6 +215,12 @@ server.tool(
   "새 템플릿 생성",
   templateCreateSchema,
   async (args) => templateCreateHandler(args),
+);
+server.tool(
+  "template.upsert",
+  "템플릿 생성 또는 수정",
+  templateUpsertSchema,
+  async (args) => templateUpsertHandler(args),
 );
 
 // 툴 등록: template.get
