@@ -1,10 +1,11 @@
 import bcrypt from "bcrypt";
 import { z } from "zod";
 import {
-    signAccessToken,
-    signRefreshToken,
-    verifyToken,
-    type JwtPayload,
+  signAccessToken,
+  signAccessTokenWithExpiry,
+  signRefreshToken,
+  verifyToken,
+  type JwtPayload,
 } from "../services/jwt.js";
 import { prisma } from "../services/prisma.js";
 
@@ -99,6 +100,10 @@ export const userUpdateInstructorProfileSchema = {
   phone: z.string().optional().describe("전화번호"),
   website: z.string().optional().describe("웹사이트"),
   links: z.any().optional().describe("추가 링크 (JSON)"),
+};
+
+export const userRefreshTokenSchema = {
+  refreshToken: z.string().describe("리프레시 토큰"),
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -294,6 +299,49 @@ export async function userLoginHandler(args: {
     const message = error instanceof Error ? error.message : "Unknown error";
     return {
       content: [{ type: "text" as const, text: `로그인 실패: ${message}` }],
+      isError: true,
+    };
+  }
+}
+
+// 2-1. 세션 연장 (리프레시 토큰 기반)
+export async function userRefreshTokenHandler(args: {
+  refreshToken: string;
+}) {
+  try {
+    const payload = verifyToken(args.refreshToken) as JwtPayload;
+    const user = await prisma.user.findUnique({
+      where: { id: payload.userId, isActive: true, deletedAt: null },
+    });
+    if (!user) {
+      return {
+        content: [{ type: "text" as const, text: "사용자를 찾을 수 없습니다." }],
+        isError: true,
+      };
+    }
+
+    const setting = await prisma.appSetting.findUnique({
+      where: { key: "session_extend_minutes" },
+    });
+    const minutes =
+      typeof setting?.value === "number"
+        ? setting.value
+        : Number((setting?.value as any)?.minutes) || 10;
+
+    const accessToken = signAccessTokenWithExpiry(payload, `${minutes}m`);
+
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: JSON.stringify({ accessToken, minutes }),
+        },
+      ],
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    return {
+      content: [{ type: "text" as const, text: `세션 연장 실패: ${message}` }],
       isError: true,
     };
   }

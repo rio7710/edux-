@@ -86,7 +86,15 @@ import {
     userUpdateRoleHandler,
     userUpdateRoleSchema,
     userUpdateSchema,
+    userRefreshTokenSchema,
+    userRefreshTokenHandler,
 } from "./tools/user.js";
+import {
+    siteSettingGetSchema,
+    siteSettingGetHandler,
+    siteSettingUpsertSchema,
+    siteSettingUpsertHandler,
+} from "./tools/siteSetting.js";
 
 // MCP 서버 인스턴스 생성
 const server = new McpServer({
@@ -281,6 +289,17 @@ server.tool("user.login", "로그인", userLoginSchema, async (args) => {
   return userLoginHandler(args);
 });
 
+// 툴 등록: user.refreshToken
+server.tool(
+  "user.refreshToken",
+  "세션 연장 (리프레시 토큰)",
+  userRefreshTokenSchema,
+  async (args) => {
+    console.error("[DEBUG] Registering tool: user.refreshToken");
+    return userRefreshTokenHandler(args);
+  },
+);
+
 // 툴 등록: user.me
 server.tool("user.me", "내 정보 조회", userMeSchema, async (args) => {
   console.error("[DEBUG] Registering tool: user.me");
@@ -374,6 +393,20 @@ server.tool(
     console.error("[DEBUG] Registering tool: user.updateInstructorProfile");
     return updateInstructorProfileHandler(args);
   },
+);
+
+// 툴 등록: siteSetting.get/upsert
+server.tool(
+  "siteSetting.get",
+  "사이트 설정 조회",
+  siteSettingGetSchema,
+  async (args) => siteSettingGetHandler(args),
+);
+server.tool(
+  "siteSetting.upsert",
+  "사이트 설정 저장",
+  siteSettingUpsertSchema,
+  async (args) => siteSettingUpsertHandler(args),
 );
 
 // Express 서버로 MCP HTTP transport 실행

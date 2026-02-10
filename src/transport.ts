@@ -74,6 +74,8 @@ import {
   userRegisterHandler,
   userLoginSchema,
   userLoginHandler,
+  userRefreshTokenSchema,
+  userRefreshTokenHandler,
   userMeSchema,
   userMeHandler,
   userGetSchema,
@@ -95,6 +97,12 @@ import {
   userUpdateInstructorProfileSchema,
   updateInstructorProfileHandler,
 } from './tools/user.js';
+import {
+  siteSettingGetSchema,
+  siteSettingGetHandler,
+  siteSettingUpsertSchema,
+  siteSettingUpsertHandler,
+} from './tools/siteSetting.js';
 
 const PORT = process.env.PORT || 7777;
 const app = express();
@@ -147,6 +155,7 @@ function createMcpServer(): McpServer {
   // User management tools
   server.tool('user.register', '회원가입', userRegisterSchema, async (args) => userRegisterHandler(args));
   server.tool('user.login', '로그인 (토큰 발급)', userLoginSchema, async (args) => userLoginHandler(args));
+  server.tool('user.refreshToken', '세션 연장 (리프레시 토큰)', userRefreshTokenSchema, async (args) => userRefreshTokenHandler(args));
   server.tool('user.me', '내 정보 조회', userMeSchema, async (args) => userMeHandler(args));
   server.tool('user.get', '사용자 정보 조회 (관리자)', userGetSchema, async (args) => userGetHandler(args));
   server.tool('user.update', '내 정보 수정', userUpdateSchema, async (args) => userUpdateHandler(args));
@@ -157,6 +166,8 @@ function createMcpServer(): McpServer {
   server.tool('user.requestInstructor', '강사 신청/프로파일 제출', userRequestInstructorSchema, async (args) => requestInstructorHandler(args));
   server.tool('user.approveInstructor', '강사 승인 (관리자)', userApproveInstructorSchema, async (args) => approveInstructorHandler(args));
   server.tool('user.updateInstructorProfile', '내 강사 프로파일 수정', userUpdateInstructorProfileSchema, async (args) => updateInstructorProfileHandler(args));
+  server.tool('siteSetting.get', '사이트 설정 조회', siteSettingGetSchema, async (args) => siteSettingGetHandler(args));
+  server.tool('siteSetting.upsert', '사이트 설정 저장', siteSettingUpsertSchema, async (args) => siteSettingUpsertHandler(args));
 
   return server;
 }

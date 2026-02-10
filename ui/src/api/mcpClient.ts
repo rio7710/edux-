@@ -285,6 +285,9 @@ export const api = {
   userLogin: (data: { email: string; password: string }) =>
     mcpClient.callTool("user.login", data),
 
+  userRefreshToken: (data: { refreshToken: string }) =>
+    mcpClient.callTool("user.refreshToken", data),
+
   userMe: (token: string) => mcpClient.callTool("user.me", { token }),
 
   userGet: (token: string, userId: string) =>
@@ -339,6 +342,12 @@ export const api = {
     role?: "admin" | "operator" | "editor" | "instructor" | "viewer" | "guest";
     isActive?: boolean;
   }) => mcpClient.callTool("user.updateByAdmin", data),
+
+  siteSettingGet: (token: string, key: string) =>
+    mcpClient.callTool("siteSetting.get", { token, key }),
+
+  siteSettingUpsert: (data: { token: string; key: string; value: any }) =>
+    mcpClient.callTool("siteSetting.upsert", data),
 
   // Table Config
   tableConfigGet: (token: string, tableKey: string) =>

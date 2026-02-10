@@ -14,6 +14,7 @@ interface User {
 interface AuthContextType {
   user: User | null;
   accessToken: string | null;
+  refreshToken: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
@@ -25,6 +26,7 @@ interface AuthContextType {
   ) => Promise<void>;
   logout: () => void;
   updateUser: (user: User) => void;
+  extendSession: () => Promise<number | null>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -40,6 +42,7 @@ interface StoredAuth {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [refreshToken, setRefreshToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   // Restore auth state from localStorage on mount
@@ -49,6 +52,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const auth: StoredAuth = JSON.parse(stored);
         setAccessToken(auth.accessToken);
+        setRefreshToken(auth.refreshToken);
         setUser(auth.user);
       } catch {
         localStorage.removeItem(STORAGE_KEY);
@@ -60,12 +64,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const saveAuth = (auth: StoredAuth) => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(auth));
     setAccessToken(auth.accessToken);
+    setRefreshToken(auth.refreshToken);
     setUser(auth.user);
   };
 
   const clearAuth = () => {
     localStorage.removeItem(STORAGE_KEY);
     setAccessToken(null);
+    setRefreshToken(null);
     setUser(null);
   };
 
@@ -107,17 +113,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const extendSession = async () => {
+    if (!refreshToken) return null;
+    const result = (await api.userRefreshToken({ refreshToken })) as {
+      accessToken: string;
+      minutes: number;
+    };
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      const auth: StoredAuth = JSON.parse(stored);
+      auth.accessToken = result.accessToken;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(auth));
+    }
+    setAccessToken(result.accessToken);
+    return result.minutes;
+  };
+
   return (
     <AuthContext.Provider
       value={{
         user,
         accessToken,
+        refreshToken,
         isAuthenticated: !!accessToken && !!user,
         isLoading,
         login,
         register,
         logout,
         updateUser,
+        extendSession,
       }}
     >
       {children}

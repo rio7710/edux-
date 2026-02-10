@@ -1,4 +1,4 @@
-import { Layout as AntLayout, Menu, theme, Button, Dropdown, Space, Avatar, Tag } from 'antd';
+import { Layout as AntLayout, Menu, theme, Button, Dropdown, Space, Avatar, Tag, message } from 'antd';
 import { useEffect, useState } from 'react';
 import type { MenuProps } from 'antd';
 import {
@@ -13,6 +13,7 @@ import {
 } from '@ant-design/icons';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { api } from '../api/mcpClient';
 
 const { Header, Content, Sider } = AntLayout;
 
@@ -20,9 +21,10 @@ export default function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
   const { token } = theme.useToken();
-  const { user, isAuthenticated, logout, accessToken } = useAuth();
+  const { user, isAuthenticated, logout, accessToken, extendSession } = useAuth();
   const [sessionRemaining, setSessionRemaining] = useState<number | null>(null);
   const [sessionExpired, setSessionExpired] = useState(false);
+  const [extendMinutes, setExtendMinutes] = useState(10);
 
   // Build menu items dynamically
   const menuItems = [
@@ -127,6 +129,29 @@ export default function Layout() {
     };
   }, [accessToken]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const loadSetting = async () => {
+      if (!accessToken) return;
+      try {
+        const result = (await api.siteSettingGet(accessToken, 'session_extend_minutes')) as {
+          value: number | null;
+        };
+        const minutes =
+          typeof result?.value === 'number'
+            ? result.value
+            : Number((result as any)?.value?.minutes) || 10;
+        if (!cancelled) setExtendMinutes(minutes);
+      } catch {
+        if (!cancelled) setExtendMinutes(10);
+      }
+    };
+    loadSetting();
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken]);
+
   const formatRemaining = (ms: number | null) => {
     if (ms === null) return '-';
     const totalSec = Math.max(0, Math.floor(ms / 1000));
@@ -160,6 +185,19 @@ export default function Layout() {
               <span style={{ color: '#666' }}>
                 종료까지 {formatRemaining(sessionRemaining)}
               </span>
+              <Button
+                size="small"
+                onClick={async () => {
+                  try {
+                    const minutes = await extendSession();
+                    message.success(`세션이 ${minutes || extendMinutes}분 연장되었습니다.`);
+                  } catch (err: any) {
+                    message.error(`연장 실패: ${err.message}`);
+                  }
+                }}
+              >
+                연장(+{extendMinutes}분)
+              </Button>
               <Dropdown menu={{ items: userMenuItems }} placement="bottomRight">
                 <Space style={{ cursor: 'pointer' }}>
                   <Avatar size="small" icon={<UserOutlined />} />

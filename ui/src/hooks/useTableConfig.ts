@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api/mcpClient';
 import { useAuth } from '../contexts/AuthContext';
-import { ColumnConfig, normalizeConfig } from '../utils/tableConfig';
+import { normalizeConfig } from '../utils/tableConfig';
+import type { ColumnConfig } from '../utils/tableConfig';
 
 export function useTableConfig(tableKey: string, defaults: ColumnConfig[]) {
   const { accessToken } = useAuth();

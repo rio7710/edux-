@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Card, Divider, Result, Select, Space, Switch, Table, Tag, Input, Tabs, message } from 'antd';
+import { Alert, Button, Card, Divider, Result, Select, Space, Switch, Table, Tag, Input, Tabs, InputNumber, message } from 'antd';
 import { ArrowUpOutlined, ArrowDownOutlined, SaveOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../api/mcpClient';
-import { ColumnConfig, NO_COLUMN_KEY, normalizeConfig } from '../utils/tableConfig';
+import { NO_COLUMN_KEY, normalizeConfig } from '../utils/tableConfig';
+import type { ColumnConfig } from '../utils/tableConfig';
 import { DEFAULT_COLUMNS } from '../utils/tableDefaults';
 
 const TABLE_OPTIONS = [
@@ -22,6 +23,8 @@ export default function SiteSettingsPage() {
   const [columns, setColumns] = useState<ColumnConfig[]>([]);
   const [dirty, setDirty] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [extendMinutes, setExtendMinutes] = useState(10);
+  const [extendDirty, setExtendDirty] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -57,6 +60,35 @@ export default function SiteSettingsPage() {
       cancelled = true;
     };
   }, [tableKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      if (!accessToken) return;
+      try {
+        const result = (await api.siteSettingGet(accessToken, 'session_extend_minutes')) as {
+          value: number | null;
+        };
+        const minutes =
+          typeof result?.value === 'number'
+            ? result.value
+            : Number((result as any)?.value?.minutes) || 10;
+        if (!cancelled) {
+          setExtendMinutes(minutes);
+          setExtendDirty(false);
+        }
+      } catch {
+        if (!cancelled) {
+          setExtendMinutes(10);
+          setExtendDirty(false);
+        }
+      }
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken]);
 
   const moveRow = (index: number, direction: 'up' | 'down') => {
     const target = direction === 'up' ? index - 1 : index + 1;
@@ -167,7 +199,48 @@ export default function SiteSettingsPage() {
                   showIcon
                   message="기본관리 (더미)"
                   description="향후 사이트 공통 설정을 이 탭에서 관리합니다."
+                  style={{ marginBottom: 16 }}
                 />
+                <Space direction="vertical" style={{ width: '100%' }}>
+                  <div>
+                    <div style={{ fontWeight: 600, marginBottom: 8 }}>세션 연장 시간(분)</div>
+                    <Space>
+                      <InputNumber
+                        min={1}
+                        max={120}
+                        value={extendMinutes}
+                        onChange={(val) => {
+                          setExtendMinutes(Number(val || 10));
+                          setExtendDirty(true);
+                        }}
+                      />
+                      <Button
+                        type="primary"
+                        disabled={!extendDirty}
+                        onClick={() => {
+                          if (!accessToken) {
+                            message.error('로그인이 필요합니다.');
+                            return;
+                          }
+                          api.siteSettingUpsert({
+                            token: accessToken,
+                            key: 'session_extend_minutes',
+                            value: extendMinutes,
+                          })
+                            .then(() => {
+                              setExtendDirty(false);
+                              message.success('세션 연장 시간이 저장되었습니다.');
+                            })
+                            .catch((err: Error) => {
+                              message.error(`저장 실패: ${err.message}`);
+                            });
+                        }}
+                      >
+                        저장
+                      </Button>
+                    </Space>
+                  </div>
+                </Space>
               </Card>
             ),
           },
@@ -203,17 +276,17 @@ export default function SiteSettingsPage() {
                         message.error('로그인이 필요합니다.');
                         return;
                       }
-                      api.tableConfigUpsert({
-                        token: accessToken,
-                        tableKey,
-                        columns: withoutNo.map((c, index) => ({
-                          columnKey: c.columnKey,
-                          label: c.label,
-                            customLabel: c.customLabel,
+                        api.tableConfigUpsert({
+                          token: accessToken,
+                          tableKey,
+                          columns: withoutNo.map((c, index) => ({
+                            columnKey: c.columnKey,
+                            label: c.label,
+                            customLabel: c.customLabel || undefined,
                             visible: c.visible,
                             order: index + 1,
-                            width: c.width,
-                            fixed: c.fixed,
+                            width: c.width ?? undefined,
+                            fixed: c.fixed ?? undefined,
                           })),
                         }).then(() => {
                           setDirty(false);

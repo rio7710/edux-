@@ -33,6 +33,9 @@ export function normalizeConfig(
       ...(base || c),
       ...c,
       label: c.label || base?.label || c.columnKey,
+      customLabel: c.customLabel ?? base?.customLabel,
+      width: c.width ?? base?.width,
+      fixed: c.fixed ?? base?.fixed,
     });
   });
 

@@ -14,6 +14,13 @@ export function signAccessToken(payload: JwtPayload): string {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: ACCESS_TOKEN_EXPIRES });
 }
 
+export function signAccessTokenWithExpiry(
+  payload: JwtPayload,
+  expiresIn: string,
+): string {
+  return jwt.sign(payload, JWT_SECRET, { expiresIn });
+}
+
 export function signRefreshToken(payload: JwtPayload): string {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: REFRESH_TOKEN_EXPIRES });
 }
