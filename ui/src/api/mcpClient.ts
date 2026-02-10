@@ -82,6 +82,7 @@ class McpClient {
       this.eventSource.onerror = (error) => {
         console.error("[MCP] SSE error:", error);
         this.connected = false;
+        this.sessionId = null;
         reject(error);
       };
     });
@@ -155,7 +156,31 @@ class McpClient {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(request),
-      }).catch(reject);
+      })
+        .then(async (res) => {
+          if (res.ok) return;
+          this.pendingRequests.delete(id);
+          if (res.status === 404) {
+            this.disconnect();
+            try {
+              const retried = await this.callTool<T>(name, args);
+              resolve(retried);
+            } catch (err) {
+              reject(err);
+            }
+            return;
+          }
+          const text = await res.text().catch(() => "");
+          reject(
+            new Error(
+              `MCP request failed (${res.status})${text ? `: ${text}` : ""}`,
+            ),
+          );
+        })
+        .catch((err) => {
+          this.pendingRequests.delete(id);
+          reject(err);
+        });
     });
   }
 }
@@ -285,7 +310,7 @@ export const api = {
   userLogin: (data: { email: string; password: string }) =>
     mcpClient.callTool("user.login", data),
 
-  userRefreshToken: (data: { refreshToken: string }) =>
+  userRefreshToken: (data: { refreshToken: string; accessToken?: string }) =>
     mcpClient.callTool("user.refreshToken", data),
 
   userIssueTestToken: (data: { token: string; minutes: number }) =>
