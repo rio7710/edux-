@@ -27,6 +27,7 @@ export default function Layout() {
   const [extendMinutes, setExtendMinutes] = useState(10);
   const [showExtendPrompt, setShowExtendPrompt] = useState(false);
   const [extendPromptShown, setExtendPromptShown] = useState(false);
+  const [showExpiredPrompt, setShowExpiredPrompt] = useState(false);
   const [logoUrl, setLogoUrl] = useState<string>('');
   const [siteTitle, setSiteTitle] = useState<string>('Edux - HR 강의 계획서 관리');
   const [draftPrompted, setDraftPrompted] = useState(false);
@@ -143,6 +144,12 @@ export default function Layout() {
       setExtendPromptShown(true);
     }
   }, [sessionRemaining, extendPromptShown]);
+
+  useEffect(() => {
+    if (!sessionExpired) return;
+    setShowExtendPrompt(false);
+    setShowExpiredPrompt(true);
+  }, [sessionExpired]);
 
   useEffect(() => {
     let cancelled = false;
@@ -467,6 +474,26 @@ export default function Layout() {
         ]}
       >
         <div>세션 연장을 진행할까요?</div>
+      </Modal>
+      <Modal
+        open={showExpiredPrompt}
+        title="세션이 만료되었습니다"
+        onCancel={() => setShowExpiredPrompt(false)}
+        footer={[
+          <Button
+            key="login"
+            type="primary"
+            onClick={() => {
+              setShowExpiredPrompt(false);
+              logout();
+              navigate('/login');
+            }}
+          >
+            다시 로그인
+          </Button>,
+        ]}
+      >
+        <div>보안을 위해 다시 로그인해주세요.</div>
       </Modal>
     </AntLayout>
   );
