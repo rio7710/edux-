@@ -1,4 +1,4 @@
-import { Layout as AntLayout, Menu, theme, Button, Dropdown, Space, Avatar, Tag, message } from 'antd';
+import { Layout as AntLayout, Menu, theme, Button, Dropdown, Space, Avatar, Tag, message, Modal } from 'antd';
 import { useEffect, useState } from 'react';
 import type { MenuProps } from 'antd';
 import {
@@ -25,6 +25,8 @@ export default function Layout() {
   const [sessionRemaining, setSessionRemaining] = useState<number | null>(null);
   const [sessionExpired, setSessionExpired] = useState(false);
   const [extendMinutes, setExtendMinutes] = useState(10);
+  const [showExtendPrompt, setShowExtendPrompt] = useState(false);
+  const [extendPromptShown, setExtendPromptShown] = useState(false);
 
   // Build menu items dynamically
   const menuItems = [
@@ -130,6 +132,16 @@ export default function Layout() {
   }, [accessToken]);
 
   useEffect(() => {
+    if (sessionRemaining === null) return;
+    if (sessionRemaining <= 0) return;
+    const thresholdMs = 5 * 60 * 1000;
+    if (sessionRemaining <= thresholdMs && !extendPromptShown) {
+      setShowExtendPrompt(true);
+      setExtendPromptShown(true);
+    }
+  }, [sessionRemaining, extendPromptShown]);
+
+  useEffect(() => {
     let cancelled = false;
     const loadSetting = async () => {
       if (!accessToken) return;
@@ -191,6 +203,8 @@ export default function Layout() {
                   try {
                     const minutes = await extendSession();
                     message.success(`세션이 ${minutes || extendMinutes}분 연장되었습니다.`);
+                    setShowExtendPrompt(false);
+                    setExtendPromptShown(false);
                   } catch (err: any) {
                     message.error(`연장 실패: ${err.message}`);
                   }
@@ -248,6 +262,41 @@ export default function Layout() {
           </Content>
         </AntLayout>
       </AntLayout>
+      <Modal
+        open={showExtendPrompt}
+        title="세션이 곧 종료됩니다"
+        onCancel={() => setShowExtendPrompt(false)}
+        footer={[
+          <Button
+            key="no"
+            onClick={() => {
+              setShowExtendPrompt(false);
+              logout();
+              navigate('/login');
+            }}
+          >
+            연장안함
+          </Button>,
+          <Button
+            key="yes"
+            type="primary"
+            onClick={async () => {
+              try {
+                const minutes = await extendSession();
+                message.success(`세션이 ${minutes || extendMinutes}분 연장되었습니다.`);
+                setShowExtendPrompt(false);
+                setExtendPromptShown(false);
+              } catch (err: any) {
+                message.error(`연장 실패: ${err.message}`);
+              }
+            }}
+          >
+            연장
+          </Button>,
+        ]}
+      >
+        <div>세션 연장을 진행할까요?</div>
+      </Modal>
     </AntLayout>
   );
 }
