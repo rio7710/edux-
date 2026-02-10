@@ -288,6 +288,9 @@ export const api = {
   userRefreshToken: (data: { refreshToken: string }) =>
     mcpClient.callTool("user.refreshToken", data),
 
+  userIssueTestToken: (data: { token: string; minutes: number }) =>
+    mcpClient.callTool("user.issueTestToken", data),
+
   userMe: (token: string) => mcpClient.callTool("user.me", { token }),
 
   userGet: (token: string, userId: string) =>

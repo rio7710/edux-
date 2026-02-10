@@ -88,6 +88,8 @@ import {
     userUpdateSchema,
     userRefreshTokenSchema,
     userRefreshTokenHandler,
+    userIssueTestTokenSchema,
+    userIssueTestTokenHandler,
 } from "./tools/user.js";
 import {
     siteSettingGetSchema,
@@ -297,6 +299,17 @@ server.tool(
   async (args) => {
     console.error("[DEBUG] Registering tool: user.refreshToken");
     return userRefreshTokenHandler(args);
+  },
+);
+
+// 툴 등록: user.issueTestToken
+server.tool(
+  "user.issueTestToken",
+  "관리자용 테스트 토큰 발급",
+  userIssueTestTokenSchema,
+  async (args) => {
+    console.error("[DEBUG] Registering tool: user.issueTestToken");
+    return userIssueTestTokenHandler(args);
   },
 );
 

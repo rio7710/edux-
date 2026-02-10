@@ -17,7 +17,7 @@ const TABLE_OPTIONS = [
 ];
 
 export default function SiteSettingsPage() {
-  const { user, accessToken } = useAuth();
+  const { user, accessToken, issueTestToken } = useAuth();
   const isAuthorized = user?.role === 'admin' || user?.role === 'operator';
   const [tableKey, setTableKey] = useState<string>('courses');
   const [columns, setColumns] = useState<ColumnConfig[]>([]);
@@ -237,6 +237,19 @@ export default function SiteSettingsPage() {
                         }}
                       >
                         저장
+                      </Button>
+                      <Button
+                        disabled={user?.role !== 'admin'}
+                        onClick={async () => {
+                          try {
+                            const minutes = await issueTestToken(1);
+                            message.success(`테스트 토큰 발급: ${minutes}분`);
+                          } catch (err: any) {
+                            message.error(`테스트 실패: ${err.message}`);
+                          }
+                        }}
+                      >
+                        관리자 세션 테스트(1분)
                       </Button>
                     </Space>
                   </div>

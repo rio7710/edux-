@@ -27,6 +27,7 @@ interface AuthContextType {
   logout: () => void;
   updateUser: (user: User) => void;
   extendSession: () => Promise<number | null>;
+  issueTestToken: (minutes: number) => Promise<number | null>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -129,6 +130,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return result.minutes;
   };
 
+  const issueTestToken = async (minutes: number) => {
+    if (!accessToken) return null;
+    const result = (await api.userIssueTestToken({ token: accessToken, minutes })) as {
+      accessToken: string;
+      minutes: number;
+    };
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      const auth: StoredAuth = JSON.parse(stored);
+      auth.accessToken = result.accessToken;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(auth));
+    }
+    setAccessToken(result.accessToken);
+    return result.minutes;
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -142,6 +159,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         logout,
         updateUser,
         extendSession,
+        issueTestToken,
       }}
     >
       {children}

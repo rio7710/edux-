@@ -76,6 +76,8 @@ import {
   userLoginHandler,
   userRefreshTokenSchema,
   userRefreshTokenHandler,
+  userIssueTestTokenSchema,
+  userIssueTestTokenHandler,
   userMeSchema,
   userMeHandler,
   userGetSchema,
@@ -156,6 +158,7 @@ function createMcpServer(): McpServer {
   server.tool('user.register', '회원가입', userRegisterSchema, async (args) => userRegisterHandler(args));
   server.tool('user.login', '로그인 (토큰 발급)', userLoginSchema, async (args) => userLoginHandler(args));
   server.tool('user.refreshToken', '세션 연장 (리프레시 토큰)', userRefreshTokenSchema, async (args) => userRefreshTokenHandler(args));
+  server.tool('user.issueTestToken', '관리자용 테스트 토큰 발급', userIssueTestTokenSchema, async (args) => userIssueTestTokenHandler(args));
   server.tool('user.me', '내 정보 조회', userMeSchema, async (args) => userMeHandler(args));
   server.tool('user.get', '사용자 정보 조회 (관리자)', userGetSchema, async (args) => userGetHandler(args));
   server.tool('user.update', '내 정보 수정', userUpdateSchema, async (args) => userUpdateHandler(args));

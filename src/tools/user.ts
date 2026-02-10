@@ -106,6 +106,11 @@ export const userRefreshTokenSchema = {
   refreshToken: z.string().describe("리프레시 토큰"),
 };
 
+export const userIssueTestTokenSchema = {
+  token: z.string().describe("액세스 토큰 (admin)"),
+  minutes: z.number().int().min(1).max(120).describe("테스트 만료 시간(분)"),
+};
+
 // ─────────────────────────────────────────────────────────────
 // 헬퍼 함수
 // ─────────────────────────────────────────────────────────────
@@ -342,6 +347,34 @@ export async function userRefreshTokenHandler(args: {
     const message = error instanceof Error ? error.message : "Unknown error";
     return {
       content: [{ type: "text" as const, text: `세션 연장 실패: ${message}` }],
+      isError: true,
+    };
+  }
+}
+
+// 2-2. 관리자용 테스트 토큰 발급
+export async function userIssueTestTokenHandler(args: {
+  token: string;
+  minutes: number;
+}) {
+  try {
+    const payload = verifyToken(args.token) as JwtPayload;
+    if (payload.role !== "admin") {
+      return {
+        content: [{ type: "text" as const, text: "관리자 권한이 필요합니다." }],
+        isError: true,
+      };
+    }
+    const accessToken = signAccessTokenWithExpiry(payload, `${args.minutes}m`);
+    return {
+      content: [
+        { type: "text" as const, text: JSON.stringify({ accessToken, minutes: args.minutes }) },
+      ],
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    return {
+      content: [{ type: "text" as const, text: `테스트 토큰 발급 실패: ${message}` }],
       isError: true,
     };
   }
