@@ -1,5 +1,38 @@
 # AI 개발 시 반복 실수 및 참고사항
 
+## 0. 필수 문서 & 분석 플로우 (요약)
+
+**필수 문서 (우선순위 순)**
+
+1. `document/00_START_HERE/01_README.md`
+2. `document/00_START_HERE/02_WORKFLOW.md`
+3. `document/00_START_HERE/03_TROUBLESHOOTING.md`
+4. `document/01_ARCHITECTURE/01_ARCHITECTURE.md`
+5. `document/01_ARCHITECTURE/02_DATA_MODEL.md`
+6. `document/02_API_MCP/01_MCP_TOOLS.md`
+7. `document/02_API_MCP/02_API_REFERENCE.md`
+8. `document/03_FRONTEND/01_FRONTEND_GUIDE.md`
+
+**기능별 참고 문서**
+
+- 템플릿/PDF: `document/04_TEMPLATES_PDF/*`
+- 운영/배포/마이그레이션: `document/05_OPERATIONS/*`
+- 보안/정책: `document/06_SECURITY_POLICY/*`
+- 테스트: `document/07_TESTING/*`
+- ML 라벨링: `document/08_ML/01_ML_LABELING_GUIDE.md`
+- 진행 현황: `document/09_PROGRESS/01_PROGRESS_REPORT.md`
+
+**분석 플로우 (권장 순서)**
+
+1. `01_README`로 문서 구조 파악
+2. `02_WORKFLOW`로 MCP 호출 흐름 이해
+3. `ARCHITECTURE` + `DATA_MODEL`로 구조/스키마 파악
+4. `MCP_TOOLS` + `API_REFERENCE`로 실제 호출 인터페이스 확인
+5. 필요한 도메인별 문서로 이동
+6. 최근 변경 사항은 `PROGRESS_REPORT` 확인
+
+---
+
 ## 1. Prisma 스키마 필드명 확인
 
 - **실수**: `password` 필드를 사용하려 함
