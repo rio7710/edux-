@@ -212,33 +212,57 @@ export default function DashboardPage() {
 
       <section style={{ display: 'grid', gap: 16, gridTemplateColumns: 'minmax(320px, 2fr) minmax(240px, 1fr)' }}>
         <Card
-          title="최근 7일 코스 등록 추이"
+          title="최근 7일 요약"
           style={{ borderRadius: 16, border: '1px solid #e2e8f0' }}
         >
-          <div style={{ display: 'grid', gap: 8 }}>
+          <div style={{ display: 'grid', gap: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <Text type="secondary">최근 7일 평균</Text>
+                <Title level={3} style={{ margin: 0 }}>
+                  {courseSeries.counts.length
+                    ? Math.round(
+                        courseSeries.counts.reduce((a, b) => a + b, 0) / courseSeries.counts.length,
+                      )
+                    : 0}
+                  <Text type="secondary" style={{ marginLeft: 8, fontSize: 14 }}>
+                    건/일
+                  </Text>
+                </Title>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <Text type="secondary">전일 대비</Text>
+                <Title level={4} style={{ margin: 0 }}>
+                  {courseSeries.counts.length >= 2
+                    ? courseSeries.counts[courseSeries.counts.length - 1] -
+                      courseSeries.counts[courseSeries.counts.length - 2]
+                    : 0}
+                  <Text type="secondary" style={{ marginLeft: 6, fontSize: 14 }}>
+                    건
+                  </Text>
+                </Title>
+              </div>
+            </div>
             <div
               style={{
-                display: 'flex',
-                gap: 10,
-                alignItems: 'flex-end',
-                height: 96,
-                background: 'linear-gradient(180deg, #f8fafc 0%, #ffffff 70%)',
-                borderRadius: 12,
-                padding: '12px 10px',
+                display: 'grid',
+                gridTemplateColumns: 'repeat(7, 1fr)',
+                gap: 6,
               }}
             >
-              {courseSeries.counts.map((count, idx) => (
-                <div key={`${idx}-${count}`} style={{ flex: 1, display: 'grid', gap: 6 }}>
+              {courseSeries.counts.map((count, idx) => {
+                const intensity = Math.min(0.9, 0.2 + count * 0.12);
+                return (
                   <div
+                    key={`${idx}-${count}`}
                     style={{
-                      height: `${Math.max(6, count * 12)}px`,
-                      background: '#94a3b8',
-                      borderRadius: 6,
-                      opacity: 0.6,
+                      height: 28,
+                      borderRadius: 8,
+                      background: `rgba(56, 189, 248, ${intensity})`,
                     }}
                   />
-                </div>
-              ))}
+                );
+              })}
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8', fontSize: 12 }}>
               {courseSeries.days.map((day, idx) => (
@@ -246,7 +270,7 @@ export default function DashboardPage() {
               ))}
             </div>
             <Text type="secondary" style={{ fontSize: 12 }}>
-              최근 7일 코스 등록 건수 기준 (최근 50건 기준)
+              상단은 평균/전일 대비 요약, 아래는 7일 히트맵입니다.
             </Text>
           </div>
         </Card>
