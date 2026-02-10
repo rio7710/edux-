@@ -119,6 +119,7 @@ export default function TemplatesPage({
     const raw = values || form.getFieldsValue();
     const payload = {
       ...raw,
+      id: editingTemplateId || (raw.id as string) || undefined,
       type: templateType || (raw.type as string) || 'course_intro',
       html: (raw.html as string) ?? form.getFieldValue('html'),
       css: (raw.css as string) ?? form.getFieldValue('css'),
@@ -269,6 +270,7 @@ export default function TemplatesPage({
     const draft = loadDraft();
     if (!draft) return;
     form.setFieldsValue(draft);
+    setEditingTemplateId(draft.id || null);
     setIsModalOpen(true);
     setPreviewHtml('');
     setTabPreviewHtml('');
@@ -341,12 +343,14 @@ export default function TemplatesPage({
         cancelText: '삭제',
         onOk: () => {
           form.setFieldsValue(draft);
+          setEditingTemplateId(draft.id || null);
           setPreviewHtml('');
           setTabPreviewHtml('');
           setIsModalOpen(true);
         },
         onCancel: () => {
           clearDraft();
+          setEditingTemplateId(null);
           form.setFieldsValue({
             name: '',
             type: templateType || 'course_intro',
@@ -677,6 +681,9 @@ export default function TemplatesPage({
             saveDraft(allValues);
           }}
         >
+          <Form.Item name="id" hidden>
+            <Input />
+          </Form.Item>
           <Form.Item
             name="name"
             label="템플릿명"
