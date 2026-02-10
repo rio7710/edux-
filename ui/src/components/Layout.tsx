@@ -29,6 +29,7 @@ export default function Layout() {
   const [extendPromptShown, setExtendPromptShown] = useState(false);
   const [logoUrl, setLogoUrl] = useState<string>('');
   const [siteTitle, setSiteTitle] = useState<string>('Edux - HR 강의 계획서 관리');
+  const [draftPrompted, setDraftPrompted] = useState(false);
 
   // Build menu items dynamically
   const menuItems = [
@@ -248,6 +249,27 @@ export default function Layout() {
       cancelled = true;
     };
   }, [accessToken]);
+
+  useEffect(() => {
+    if (!isAuthenticated || draftPrompted) return;
+    const keys = Object.keys(localStorage || {}).filter((key) =>
+      key.startsWith('draft:template:'),
+    );
+    if (keys.length === 0) return;
+    const key = keys[0];
+    const type = key.replace('draft:template:', '');
+    setDraftPrompted(true);
+    Modal.confirm({
+      title: '임시 저장된 템플릿이 있습니다',
+      content: '이어서 작성하시겠습니까?',
+      okText: '이어서 작성',
+      cancelText: '나중에',
+      onOk: () => {
+        const draftParam = type || 'all';
+        navigate(`/templates?draft=${draftParam}`);
+      },
+    });
+  }, [isAuthenticated, draftPrompted, navigate]);
 
   useEffect(() => {
     const handleTitle = (event: Event) => {

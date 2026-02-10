@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   Button,
   Table,
@@ -18,6 +18,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useTableConfig } from '../hooks/useTableConfig';
 import { buildColumns, NO_COLUMN_KEY } from '../utils/tableConfig';
 import { DEFAULT_COLUMNS } from '../utils/tableDefaults';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 interface Template {
   id: string;
@@ -96,7 +97,9 @@ export default function TemplatesPage({
   >(undefined);
   const [form] = Form.useForm();
   const [templates, setTemplates] = useState<Template[]>([]);
-  const { accessToken, user } = useAuth();
+  const { accessToken, user, logout } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
   const { configs: columnConfigs } = useTableConfig(
     'templates',
     DEFAULT_COLUMNS.templates,
@@ -105,6 +108,60 @@ export default function TemplatesPage({
   const [instructors, setInstructors] = useState<{ id: string; name: string }[]>(
     [],
   );
+
+  const draftKey = useMemo(() => {
+    if (templateType) return `draft:template:${templateType}`;
+    return 'draft:template:all';
+  }, [templateType]);
+
+  const saveDraft = (values?: Record<string, unknown>) => {
+    const raw = values || form.getFieldsValue();
+    const payload = {
+      ...raw,
+      type: templateType || (raw.type as string) || 'course_intro',
+      html: (raw.html as string) ?? form.getFieldValue('html'),
+      css: (raw.css as string) ?? form.getFieldValue('css'),
+      updatedAt: new Date().toISOString(),
+    };
+    localStorage.setItem(draftKey, JSON.stringify(payload));
+  };
+
+  const loadDraft = () => {
+    const stored = localStorage.getItem(draftKey);
+    if (!stored) return null;
+    try {
+      return JSON.parse(stored);
+    } catch {
+      return null;
+    }
+  };
+
+  const clearDraft = () => {
+    localStorage.removeItem(draftKey);
+  };
+
+  const isAuthError = (messageText: string) => {
+    return /인증|토큰|로그인|권한|세션|MCP 연결 시간이 초과되었습니다|요청 시간이 초과되었습니다/.test(
+      messageText,
+    );
+  };
+
+  const handleSessionExpired = (reason?: string) => {
+    saveDraft();
+    Modal.confirm({
+      title: '세션이 만료되었습니다',
+      content:
+        reason
+          ? `작성 중인 내용을 임시 저장했습니다. (${reason})`
+          : '작성 중인 내용을 임시 저장했습니다. 다시 로그인해주세요.',
+      okText: '로그인으로 이동',
+      cancelButtonProps: { style: { display: 'none' } },
+      onOk: () => {
+        logout();
+        navigate('/login');
+      },
+    });
+  };
 
   const createMutation = useMutation({
     mutationFn: (data: { name: string; type: string; html: string; css: string }) =>
@@ -116,8 +173,13 @@ export default function TemplatesPage({
       const values = form.getFieldsValue();
       setTemplates(prev => [...prev, { ...values, id: templateResult.id }]);
       form.resetFields();
+      clearDraft();
     },
     onError: (error: Error) => {
+      if (isAuthError(error.message)) {
+        handleSessionExpired(error.message);
+        return;
+      }
       message.error(`저장 실패: ${error.message}`);
     },
   });
@@ -129,6 +191,10 @@ export default function TemplatesPage({
       setTemplates(data.items || []);
     },
     onError: (error: Error) => {
+      if (isAuthError(error.message)) {
+        handleSessionExpired(error.message);
+        return;
+      }
       message.error(`목록 조회 실패: ${error.message}`);
     },
   });
@@ -157,6 +223,10 @@ export default function TemplatesPage({
       }
     },
     onError: (error: Error) => {
+      if (isAuthError(error.message)) {
+        handleSessionExpired(error.message);
+        return;
+      }
       message.error(`미리보기 실패: ${error.message}`);
     },
   });
@@ -169,6 +239,10 @@ export default function TemplatesPage({
       setTabPreviewHtml(extractHtml(result));
     },
     onError: (error: Error) => {
+      if (isAuthError(error.message)) {
+        handleSessionExpired(error.message);
+        return;
+      }
       message.error(`미리보기 실패: ${error.message}`);
     },
   });
@@ -176,6 +250,19 @@ export default function TemplatesPage({
   useEffect(() => {
     listMutation.mutate();
   }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const draftParam = params.get('draft');
+    if (!draftParam) return;
+    if (draftParam !== (templateType || 'all')) return;
+    const draft = loadDraft();
+    if (!draft) return;
+    form.setFieldsValue(draft);
+    setIsModalOpen(true);
+    setPreviewHtml('');
+    setTabPreviewHtml('');
+  }, [location.search, templateType]);
 
   const handleTabChange = async (key: string) => {
     if (key !== 'preview') return;
@@ -221,6 +308,10 @@ export default function TemplatesPage({
 
       tabPreviewMutation.mutate({ html, css, data });
     } catch (err: any) {
+      if (isAuthError(err.message)) {
+        handleSessionExpired(err.message);
+        return;
+      }
       message.error(`샘플 데이터 로드 실패: ${err.message}`);
     }
   };
@@ -228,6 +319,34 @@ export default function TemplatesPage({
   const handleCreate = () => {
     if (!accessToken) {
       message.warning('로그인 후 이용해주세요.');
+      return;
+    }
+    const draft = loadDraft();
+    if (draft) {
+      Modal.confirm({
+        title: '임시 저장된 내용이 있습니다',
+        content: '불러와서 이어서 작성할까요?',
+        okText: '불러오기',
+        cancelText: '삭제',
+        onOk: () => {
+          form.setFieldsValue(draft);
+          setPreviewHtml('');
+          setTabPreviewHtml('');
+          setIsModalOpen(true);
+        },
+        onCancel: () => {
+          clearDraft();
+          form.setFieldsValue({
+            name: '',
+            type: templateType || 'course_intro',
+            html: initialHtml,
+            css: initialCss,
+          });
+          setPreviewHtml('');
+          setTabPreviewHtml('');
+          setIsModalOpen(true);
+        },
+      });
       return;
     }
     form.setFieldsValue({
@@ -273,6 +392,12 @@ export default function TemplatesPage({
         api.courseList(50, 0).then((result) => {
           const data = result as { courses: { id: string; title: string }[] };
           setCourses(data.courses || []);
+        }).catch((error: Error) => {
+          if (isAuthError(error.message)) {
+            handleSessionExpired(error.message);
+            return;
+          }
+          message.error(`코스 목록 조회 실패: ${error.message}`);
         });
       }
       setPreviewTargetId(undefined);
@@ -300,6 +425,10 @@ export default function TemplatesPage({
             data,
           });
         }).catch((error: Error) => {
+          if (isAuthError(error.message)) {
+            handleSessionExpired(error.message);
+            return;
+          }
           message.error(`미리보기 실패: ${error.message}`);
         });
         return;
@@ -309,6 +438,12 @@ export default function TemplatesPage({
         api.instructorList(50, 0).then((result) => {
           const data = result as { instructors: { id: string; name: string }[] };
           setInstructors(data.instructors || []);
+        }).catch((error: Error) => {
+          if (isAuthError(error.message)) {
+            handleSessionExpired(error.message);
+            return;
+          }
+          message.error(`강사 목록 조회 실패: ${error.message}`);
         });
       }
       setPreviewTargetId(undefined);
@@ -347,6 +482,10 @@ export default function TemplatesPage({
         });
         setPreviewTargetOpen(false);
       } catch (error: any) {
+        if (isAuthError(error.message)) {
+          handleSessionExpired(error.message);
+          return;
+        }
         message.error(`미리보기 실패: ${error.message}`);
       }
       return;
@@ -367,6 +506,10 @@ export default function TemplatesPage({
         });
         setPreviewTargetOpen(false);
       } catch (error: any) {
+        if (isAuthError(error.message)) {
+          handleSessionExpired(error.message);
+          return;
+        }
         message.error(`미리보기 실패: ${error.message}`);
       }
     }
@@ -481,7 +624,14 @@ export default function TemplatesPage({
           </Button>,
         ]}
       >
-        <Form form={form} layout="vertical">
+        <Form
+          form={form}
+          layout="vertical"
+          onValuesChange={(_, allValues) => {
+            if (!isModalOpen) return;
+            saveDraft(allValues);
+          }}
+        >
           <Form.Item
             name="name"
             label="템플릿명"

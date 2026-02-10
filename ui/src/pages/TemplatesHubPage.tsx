@@ -1,4 +1,6 @@
-import { Tabs } from 'antd';
+import { Tabs, Alert } from 'antd';
+import { useEffect, useMemo, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import TemplatesPage from './TemplatesPage';
 
 const instructorHtml = `<div class="instructor-profile">
@@ -45,20 +47,8 @@ ul {
   line-height: 1.8;
 }`;
 
-const instructorSample = {
-  instructor: {
-    name: '홍길동',
-    title: 'HRD 수석 강사',
-    email: 'hong@example.com',
-    phone: '010-1234-5678',
-    affiliation: '에듀엑스',
-    specialties: '리더십, 조직문화, 커뮤니케이션',
-  },
-  courses: [
-    { title: '리더십 기본 과정' },
-    { title: '조직문화 혁신 워크숍' },
-  ],
-};
+
+
 
 const courseHtml = `<div class="course-intro">
   <h1>{{course.title}}</h1>
@@ -105,25 +95,39 @@ ul {
   line-height: 1.8;
 }`;
 
-const courseSample = {
-  course: {
-    title: '리더십 기본 과정',
-    description: '조직 리더십 역량을 강화하는 과정입니다.',
-    durationHours: 12,
-    goal: '핵심 리더십 역량을 체계적으로 습득',
-  },
-  instructors: [{ name: '홍길동' }, { name: '김강사' }],
-  lectures: [
-    { title: '리더십 개론', hours: 2 },
-    { title: '코칭 실습', hours: 3 },
-  ],
-};
+
+
 
 export default function TemplatesHubPage() {
+  const location = useLocation();
+  const draftTarget = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    return params.get('draft') || '';
+  }, [location.search]);
+  const initialKey = draftTarget === 'course_intro'
+    ? 'course'
+    : draftTarget === 'instructor_profile'
+      ? 'instructor'
+      : 'all';
+  const [activeKey, setActiveKey] = useState(initialKey);
+
+  useEffect(() => {
+    setActiveKey(initialKey);
+  }, [initialKey]);
+
   return (
     <div>
       <h2 style={{ margin: 0, marginBottom: 12 }}>템플릿 관리</h2>
+      <Alert
+        type="info"
+        showIcon
+        message="강사 프로필/과정 소개 템플릿을 관리합니다."
+        description="템플릿 미리보기는 샘플 데이터를 사용하며, PDF 렌더는 별도 페이지에서 수행합니다."
+        style={{ marginBottom: 16 }}
+      />
       <Tabs
+        activeKey={activeKey}
+        onChange={(key) => setActiveKey(key)}
         destroyInactiveTabPane
         items={[
           {
@@ -135,7 +139,8 @@ export default function TemplatesHubPage() {
                 description="강사 프로필/과정 소개 전체 목록입니다."
                 defaultHtml={courseHtml}
                 defaultCss={courseCss}
-                sampleData={courseSample}
+
+
               />
             ),
           },
@@ -150,7 +155,8 @@ export default function TemplatesHubPage() {
                 templateType="instructor_profile"
                 defaultHtml={instructorHtml}
                 defaultCss={instructorCss}
-                sampleData={instructorSample}
+
+
               />
             ),
           },
@@ -165,7 +171,8 @@ export default function TemplatesHubPage() {
                 templateType="course_intro"
                 defaultHtml={courseHtml}
                 defaultCss={courseCss}
-                sampleData={courseSample}
+
+
               />
             ),
           },
