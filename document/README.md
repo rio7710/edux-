@@ -18,6 +18,8 @@ MCP 표준 프로토콜(stdio / SSE)을 통해 **Claude Desktop**, **Claude CLI*
 - `TEMPLATE_GUIDE.md` — 템플릿 변수 가이드 (course/instructor 데이터 키)
 - `PDF_RENDER_GUIDE.md` — PDF 렌더 흐름, 파일명 규칙, 다운로드 정책
 - `SEED_SCRIPTS.md` — 샘플/템플릿 시드 스크립트 목록
+- `SITE_SETTINGS.md` — 사이트 관리(공통 설정) 정의
+- `COLUMN_SETTINGS_APPLY.md` — 컬럼 설정 적용 방식 정의
 - `WORKFLOW.md` — 단계별 절차(한 단계 = 한 툴 호출), 에러 처리 규칙
 
 ### 운영/정책 문서
@@ -27,6 +29,7 @@ MCP 표준 프로토콜(stdio / SSE)을 통해 **Claude Desktop**, **Claude CLI*
 - `FRONTEND_GUIDE.md` — 프론트엔드 기술 스택, 구조, 컴포넌트 개발 및 상태 관리 규칙
 - `TESTING_GUIDE.md` — 테스트 철학, 종류별(단위, 통합, E2E) 테스트 작성 및 실행 가이드
 - `DEPLOYMENT_GUIDE.md` — 배포 환경, CI/CD 파이프라인, 환경 변수 관리 및 모니터링 정책
+- `MIGRATION_RUNBOOK.md` — 운영 마이그레이션 절차 (권장 워크플로우, 금지/주의 사항)
 
 ### 참고 문서
 
