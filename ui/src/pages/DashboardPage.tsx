@@ -216,18 +216,28 @@ export default function DashboardPage() {
           style={{ borderRadius: 16, border: '1px solid #e2e8f0' }}
         >
           <div style={{ display: 'grid', gap: 8 }}>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', height: 120 }}>
+            <div
+              style={{
+                display: 'flex',
+                gap: 10,
+                alignItems: 'flex-end',
+                height: 96,
+                background: 'linear-gradient(180deg, #f8fafc 0%, #ffffff 70%)',
+                borderRadius: 12,
+                padding: '12px 10px',
+              }}
+            >
               {courseSeries.counts.map((count, idx) => (
-                <div
-                  key={`${idx}-${count}`}
-                  style={{
-                    flex: 1,
-                    height: `${Math.max(10, count * 18)}px`,
-                    background: 'linear-gradient(180deg, #38bdf8, #0ea5e9)',
-                    borderRadius: 8,
-                    opacity: 0.9,
-                  }}
-                />
+                <div key={`${idx}-${count}`} style={{ flex: 1, display: 'grid', gap: 6 }}>
+                  <div
+                    style={{
+                      height: `${Math.max(6, count * 12)}px`,
+                      background: '#94a3b8',
+                      borderRadius: 6,
+                      opacity: 0.6,
+                    }}
+                  />
+                </div>
               ))}
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8', fontSize: 12 }}>
