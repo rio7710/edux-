@@ -28,17 +28,44 @@ async function resolveCreatorNames<T extends { createdBy?: string | null }>(
 // 스키마 정의
 export const instructorUpsertSchema = {
   id: z.string().optional().describe("없으면 새로 생성"),
+  userId: z.string().optional().describe("연결할 사용자 ID"),
   name: z.string().describe("강사 이름"),
   title: z.string().optional(),
   email: z.string().email().optional().or(z.literal("")),
   phone: z.string().optional(),
   affiliation: z.string().optional(),
-  avatarUrl: z.string().url().optional().or(z.literal("")),
+  avatarUrl: z.string().optional().or(z.literal("")),
   tagline: z.string().optional(),
+  bio: z.string().optional(),
   specialties: z.array(z.string()).optional(),
-  certifications: z.array(z.string()).optional(),
+  certifications: z.array(z.object({
+    name: z.string(),
+    issuer: z.string().optional(),
+    date: z.string().optional(),
+    fileUrl: z.string().optional(),
+  })).optional(),
   awards: z.array(z.string()).optional(),
   links: z.record(z.any()).optional(),
+  degrees: z.array(z.object({
+    name: z.string(),
+    school: z.string(),
+    major: z.string(),
+    year: z.string(),
+    fileUrl: z.string().optional(),
+  })).optional(),
+  careers: z.array(z.object({
+    company: z.string(),
+    role: z.string(),
+    period: z.string(),
+    description: z.string().optional(),
+  })).optional(),
+  publications: z.array(z.object({
+    title: z.string(),
+    type: z.string(),
+    year: z.string().optional(),
+    publisher: z.string().optional(),
+    url: z.string().optional(),
+  })).optional(),
   token: z.string().optional().describe("인증 토큰 (등록자 추적용)"),
 };
 
@@ -64,6 +91,7 @@ export const instructorListSchema = {
 // 핸들러 정의
 export async function instructorUpsertHandler(args: {
   id?: string;
+  userId?: string;
   name: string;
   title?: string;
   email?: string;
@@ -71,10 +99,14 @@ export async function instructorUpsertHandler(args: {
   affiliation?: string;
   avatarUrl?: string;
   tagline?: string;
+  bio?: string;
   specialties?: string[];
-  certifications?: string[];
+  certifications?: { name: string; issuer?: string; date?: string; fileUrl?: string }[];
   awards?: string[];
   links?: Record<string, any>;
+  degrees?: { name: string; school: string; major: string; year: string; fileUrl?: string }[];
+  careers?: { company: string; role: string; period: string; description?: string }[];
+  publications?: { title: string; type: string; year?: string; publisher?: string; url?: string }[];
   token?: string;
 }) {
   try {
@@ -82,19 +114,54 @@ export async function instructorUpsertHandler(args: {
 
     // 토큰에서 사용자 ID 추출
     let createdBy: string | undefined;
+    let payload: { userId: string; role: string } | undefined;
     if (args.token) {
       try {
-        const payload = verifyToken(args.token);
+        payload = verifyToken(args.token) as { userId: string; role: string };
         createdBy = payload.userId;
       } catch {
         // 토큰 검증 실패시 무시
       }
     }
 
+    const isAdminOperator =
+      payload?.role === "admin" || payload?.role === "operator";
+
+    // 강사는 반드시 User와 연결되어야 함
+    let resolvedUserId = args.userId;
+    if (payload) {
+      if (!isAdminOperator) {
+        resolvedUserId = payload.userId;
+      } else if (!resolvedUserId) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "관리자/운영자는 사용자 ID를 선택해야 합니다.",
+            },
+          ],
+          isError: true,
+        };
+      }
+    }
+
+    if (!resolvedUserId) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: "강사 등록은 사용자 ID가 필요합니다.",
+          },
+        ],
+        isError: true,
+      };
+    }
+
     const instructor = await prisma.instructor.upsert({
       where: { id: instructorId },
       create: {
         id: instructorId,
+        userId: resolvedUserId,
         name: args.name,
         title: args.title,
         email: args.email,
@@ -102,13 +169,18 @@ export async function instructorUpsertHandler(args: {
         affiliation: args.affiliation,
         avatarUrl: args.avatarUrl,
         tagline: args.tagline,
+        bio: args.bio,
         specialties: args.specialties || [],
-        certifications: args.certifications || [],
+        certifications: args.certifications || undefined,
         awards: args.awards || [],
         links: args.links,
+        degrees: args.degrees || undefined,
+        careers: args.careers || undefined,
+        publications: args.publications || undefined,
         createdBy,
       },
       update: {
+        userId: resolvedUserId,
         name: args.name,
         title: args.title,
         email: args.email,
@@ -116,10 +188,14 @@ export async function instructorUpsertHandler(args: {
         affiliation: args.affiliation,
         avatarUrl: args.avatarUrl,
         tagline: args.tagline,
+        bio: args.bio,
         specialties: args.specialties || [],
-        certifications: args.certifications || [],
+        certifications: args.certifications || undefined,
         awards: args.awards || [],
         links: args.links,
+        degrees: args.degrees || undefined,
+        careers: args.careers || undefined,
+        publications: args.publications || undefined,
       },
     });
 

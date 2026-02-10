@@ -186,12 +186,20 @@ export const api = {
   // Instructor
   instructorUpsert: (data: {
     id?: string;
+    userId?: string;
     name: string;
     title?: string;
     email?: string;
     phone?: string;
     affiliation?: string;
+    avatarUrl?: string;
+    bio?: string;
     specialties?: string[];
+    certifications?: { name: string; issuer?: string; date?: string; fileUrl?: string }[];
+    awards?: string[];
+    degrees?: { name: string; school: string; major: string; year: string; fileUrl?: string }[];
+    careers?: { company: string; role: string; period: string; description?: string }[];
+    publications?: { title: string; type: string; year?: string; publisher?: string; url?: string }[];
     token?: string;
   }) => mcpClient.callTool("instructor.upsert", data),
 
@@ -330,4 +338,20 @@ export const api = {
     name?: string;
     role?: "admin" | "operator" | "editor" | "instructor" | "viewer" | "guest";
     isActive?: boolean;
-  }) => mcpClient.callTool("user.updateByAdmin", data),};
+  }) => mcpClient.callTool("user.updateByAdmin", data),
+
+  // File Upload (REST, not MCP)
+  uploadFile: async (file: File): Promise<{ url: string }> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await fetch('/api/upload', {
+      method: 'POST',
+      body: formData,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: '업로드 실패' }));
+      throw new Error(err.error || '업로드 실패');
+    }
+    return res.json();
+  },
+};
