@@ -148,6 +148,7 @@ export default function Layout() {
   useEffect(() => {
     if (!sessionExpired) return;
     setShowExtendPrompt(false);
+    window.dispatchEvent(new CustomEvent('sessionExpired'));
     setShowExpiredPrompt(true);
   }, [sessionExpired]);
 

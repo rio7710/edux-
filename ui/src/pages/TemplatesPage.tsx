@@ -252,6 +252,16 @@ export default function TemplatesPage({
   }, []);
 
   useEffect(() => {
+    const handler = () => {
+      saveDraft();
+    };
+    window.addEventListener('sessionExpired', handler);
+    return () => {
+      window.removeEventListener('sessionExpired', handler);
+    };
+  }, []);
+
+  useEffect(() => {
     const params = new URLSearchParams(location.search);
     const draftParam = params.get('draft');
     if (!draftParam) return;
