@@ -10,6 +10,7 @@ import {
   message,
   Space,
   Tag,
+  Alert,
 } from 'antd';
 import type { ColumnType } from 'antd/es/table';
 import {
@@ -337,6 +338,14 @@ export default function UsersPage() {
           />
         </Space>
       </div>
+
+      <Alert
+        type="info"
+        showIcon
+        message="회원 계정과 권한을 관리합니다."
+        description="역할 변경/활성화는 관리자만 가능합니다."
+        style={{ marginBottom: 16 }}
+      />
 
       <Table
         columns={columns}

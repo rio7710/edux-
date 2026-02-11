@@ -250,3 +250,4 @@ pending → processing → done
 - `isPending`: 신청 후 관리자 승인 대기 상태
 - `isApproved`: 관리자 승인 완료 시 `true`
 - 승인 시 `Instructor` 레코드 자동 생성 + `User.role` → `instructor`로 변경
+- 강사는 반드시 `User`와 연결되어야 하며, `User` 없이 Instructor 단독 생성은 허용하지 않음

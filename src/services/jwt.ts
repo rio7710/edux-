@@ -36,3 +36,13 @@ export function decodeToken(token: string): JwtPayload | null {
     return null;
   }
 }
+
+export function decodeTokenWithExp(
+  token: string,
+): (JwtPayload & { exp?: number }) | null {
+  try {
+    return jwt.decode(token) as (JwtPayload & { exp?: number }) | null;
+  } catch {
+    return null;
+  }
+}

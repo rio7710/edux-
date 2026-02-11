@@ -92,6 +92,14 @@
 - `isInstructorProfileActive` 같은 플래그로 강사용 추가 필드 활성화
 - 활성화 시 표시되는 선택적 필드 예: `affiliation`, `certifications`, `bio`, `avatarUrl`
 
+1. 강사 등록 원칙
+
+- 강사는 반드시 **User 계정**이 먼저 존재해야 합니다.
+- User 없이 Instructor 단독 등록은 금지합니다.
+- 강사 승인 플로우는 `User → InstructorProfile → Instructor` 순서를 따릅니다.
+- 일반 사용자는 **본인 계정만** 강사 신청/등록 가능합니다.
+- 관리자/운영자는 **기존 사용자 ID를 선택**해야 강사 등록이 가능합니다.
+
 1. 감사·로깅
 
 - 모든 인증/권한 변경/중요 액션 로그 기록 (누가, 언제, 어떤 변경)

@@ -169,3 +169,21 @@ createMutation.mutate({
 - `src/tools/*.ts`: Schema 정의 + Handler 구현
 - `src/mcp-server.ts` 또는 `src/transport.ts`: Tool 등록
 - Schema 변경 후 등록된 곳도 함께 수정
+
+---
+
+## 11. VS Code 자동 부트/리셋 태스크
+
+- 폴더 오픈 시 자동 실행: `edux: start all`
+- 수동 실행 (VS Code Tasks):
+  - `edux: start servers`
+  - `edux: restart servers`
+  - `edux: start all`
+  - `edux: restart all`
+  - `edux: reset all (clear logs)`
+  - `edux: stop servers`
+  - `edux: start db` / `edux: stop db`
+  - `edux: clear logs`
+
+> 리셋은 `node` 프로세스를 모두 종료합니다. 다른 노드 앱이 있으면 영향 가능.
+> 기본 태스크만 사용하고, 문제가 생기면 AI 도움으로 대응.

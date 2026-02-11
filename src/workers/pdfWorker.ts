@@ -4,6 +4,8 @@ import { prisma } from '../services/prisma.js';
 import { convertHtmlToPdf } from '../services/pdf.js';
 import Handlebars from 'handlebars';
 
+Handlebars.registerHelper('plus1', (val: number) => val + 1);
+
 // Redis connection for BullMQ
 const connection = {
   host: process.env.REDIS_HOST || 'localhost',

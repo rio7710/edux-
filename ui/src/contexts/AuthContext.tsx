@@ -115,10 +115,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const extendSession = async () => {
-    if (!refreshToken) return null;
-    const result = (await api.userRefreshToken({ refreshToken })) as {
+    if (!refreshToken) {
+      throw new Error("리프레시 토큰이 없습니다.");
+    }
+    const result = (await api.userRefreshToken({ refreshToken, accessToken: accessToken || undefined })) as {
       accessToken: string;
       minutes: number;
+      totalMinutes?: number;
     };
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
@@ -127,7 +130,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(auth));
     }
     setAccessToken(result.accessToken);
-    return result.minutes;
+    return result.totalMinutes ?? result.minutes;
   };
 
   const issueTestToken = async (minutes: number) => {

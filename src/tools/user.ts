@@ -5,6 +5,7 @@ import {
   signAccessTokenWithExpiry,
   signRefreshToken,
   verifyToken,
+  decodeTokenWithExp,
   type JwtPayload,
 } from "../services/jwt.js";
 import { prisma } from "../services/prisma.js";
@@ -104,6 +105,7 @@ export const userUpdateInstructorProfileSchema = {
 
 export const userRefreshTokenSchema = {
   refreshToken: z.string().describe("리프레시 토큰"),
+  accessToken: z.string().optional().describe("현재 액세스 토큰"),
 };
 
 export const userIssueTestTokenSchema = {
@@ -312,6 +314,7 @@ export async function userLoginHandler(args: {
 // 2-1. 세션 연장 (리프레시 토큰 기반)
 export async function userRefreshTokenHandler(args: {
   refreshToken: string;
+  accessToken?: string;
 }) {
   try {
     const payload = verifyToken(args.refreshToken) as JwtPayload;
@@ -338,13 +341,26 @@ export async function userRefreshTokenHandler(args: {
       email: payload.email,
       role: payload.role,
     };
-    const accessToken = signAccessTokenWithExpiry(cleanPayload, `${minutes}m`);
+    let totalMinutes = minutes;
+    if (args.accessToken) {
+      const decoded = decodeTokenWithExp(args.accessToken);
+      if (decoded?.exp) {
+        const remainingSec = Math.max(0, decoded.exp * 1000 - Date.now()) / 1000;
+        const remainingMin = Math.ceil(remainingSec / 60);
+        totalMinutes = Math.max(1, remainingMin + minutes);
+      }
+    }
+
+    const accessToken = signAccessTokenWithExpiry(
+      cleanPayload,
+      `${totalMinutes}m`,
+    );
 
     return {
       content: [
         {
           type: "text" as const,
-          text: JSON.stringify({ accessToken, minutes }),
+          text: JSON.stringify({ accessToken, minutes, totalMinutes }),
         },
       ],
     };

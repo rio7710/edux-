@@ -59,6 +59,8 @@
 4. `InstructorProfile.isApproved = true`, `isPending = false`
 5. `Instructor` 레코드 자동 생성, 사용자 역할 `instructor`로 변경
 
+> 강사는 반드시 `User`와 연결되어야 하며, `User` 없이 Instructor 단독 생성은 허용하지 않습니다.
+
 ---
 
 ### 툴별 권한 매트릭스

@@ -88,152 +88,181 @@ ul {
   line-height: 1.8;
 }`;
 
-const courseHtml2 = `<div class="course-doc">
+const courseHtml2 = `<div class="page">
   <div class="doc-header">
-    <div>
-      <div class="doc-label">과정 소개서</div>
-      <h1>{{course.title}}</h1>
-      <p class="subtitle">{{course.description}}</p>
-    </div>
-    <div class="doc-meta">
-      <div class="meta-box">
-        <div class="meta-label">교육 시간</div>
-        <div class="meta-value">{{course.durationHours}}시간</div>
-      </div>
-      <div class="meta-box">
-        <div class="meta-label">온라인 여부</div>
-        <div class="meta-value">{{#if course.isOnline}}온라인{{else}}오프라인{{/if}}</div>
-      </div>
-    </div>
+    <div class="doc-label">과정 소개서</div>
+    <h1>{{course.title}}</h1>
+    <p class="subtitle">{{course.description}}</p>
   </div>
 
-  <div class="grid">
-    <div class="card">
-      <h2>교육 목표</h2>
-      <p>{{course.goal}}</p>
-    </div>
-    <div class="card">
-      <h2>강사</h2>
-      <ul>
+  <h2>과정 개요</h2>
+  <table>
+    <tbody>
+      <tr>
+        <th>교육 시간</th>
+        <td>{{course.durationHours}}시간</td>
+        <th>교육 방식</th>
+        <td>{{#if course.isOnline}}온라인{{else}}오프라인{{/if}}</td>
+      </tr>
+      <tr>
+        <th>교육 목표</th>
+        <td colspan="3">{{course.goal}}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>담당 강사</h2>
+  <table>
+    <tbody>
+      <tr>
+        <th>강사명</th>
         {{#each instructors}}
-        <li>{{this.name}}</li>
+        <td>{{this.name}}</td>
         {{/each}}
-      </ul>
-    </div>
-  </div>
+      </tr>
+    </tbody>
+  </table>
 
-  <div class="card">
-    <h2>교육 내용</h2>
-    <div class="lesson-grid">
+  <h2>교육 내용</h2>
+  <table>
+    <thead>
+      <tr>
+        <th class="col-no">No.</th>
+        <th class="col-title">강의명</th>
+        <th>내용</th>
+        <th class="col-hours">시간</th>
+      </tr>
+    </thead>
+    <tbody>
       {{#each lectures}}
-      <div class="lesson">
-        <div class="lesson-title">{{this.title}}</div>
-        <div class="lesson-desc">{{this.description}}</div>
-        <div class="lesson-hours">{{this.hours}}시간</div>
-      </div>
+      <tr>
+        <td class="center">{{plus1 @index}}</td>
+        <td>{{this.title}}</td>
+        <td>{{this.description}}</td>
+        <td class="center">{{this.hours}}H</td>
+      </tr>
       {{/each}}
-    </div>
-  </div>
+    </tbody>
+  </table>
 </div>`;
 
-const courseCss2 = `.course-doc {
-  font-family: 'Noto Sans KR', sans-serif;
-  max-width: 820px;
-  margin: 0 auto;
-  padding: 36px;
-  color: #1f2a37;
+const courseCss2 = `@page {
+  size: A4;
+  margin: 0;
 }
 
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: #e5e7eb;
+  color-scheme: light;
+}
+
+.page {
+  font-family: 'Noto Sans KR', sans-serif;
+  width: 210mm;
+  min-height: 297mm;
+  margin: 20px auto;
+  padding: 60px 50px;
+  background: #fff;
+  color: #111827;
+  line-height: 1.6;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.12);
+}
+
+@media print {
+  html, body { background: #fff; }
+  .page {
+    margin: 0;
+    padding: 20mm 18mm;
+    box-shadow: none;
+    width: 100%;
+    min-height: auto;
+  }
+}
+
+/* ── 헤더 ── */
 .doc-header {
-  display: flex;
-  justify-content: space-between;
-  gap: 24px;
-  border: 2px solid #111827;
-  padding: 20px;
-  border-radius: 12px;
+  text-align: center;
+  padding-bottom: 20px;
+  margin-bottom: 32px;
+  border-bottom: 2px solid #111827;
 }
 
 .doc-label {
-  font-size: 12px;
+  display: inline-block;
+  font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.08em;
-  color: #2563eb;
+  letter-spacing: 0.15em;
+  color: #fff;
+  background: #1d4ed8;
+  padding: 4px 16px;
+  border-radius: 2px;
+  margin-bottom: 10px;
 }
 
 h1 {
-  margin: 8px 0 6px;
-  font-size: 28px;
+  margin: 12px 0 8px;
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
 }
 
 .subtitle {
   margin: 0;
-  color: #4b5563;
-}
-
-.doc-meta {
-  display: grid;
-  gap: 12px;
-  min-width: 180px;
-}
-
-.meta-box {
-  border: 1px solid #d1d5db;
-  border-radius: 10px;
-  padding: 10px 12px;
-  background: #f9fafb;
-}
-
-.meta-label {
-  font-size: 12px;
+  font-size: 14px;
   color: #6b7280;
 }
 
-.meta-value {
+/* ── 섹션 제목 ── */
+h2 {
+  font-size: 15px;
   font-weight: 700;
-  margin-top: 4px;
+  margin: 28px 0 10px;
+  padding: 7px 14px;
+  background: #f0f4ff;
+  border-left: 4px solid #1d4ed8;
+  color: #1e3a5f;
 }
 
-.grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  margin-top: 20px;
+/* ── 테이블 공통 ── */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 4px;
+  font-size: 13px;
 }
 
-.card {
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
-  padding: 16px;
-  background: #fff;
+th, td {
+  border: 1px solid #c7d2e0;
+  padding: 9px 14px;
+  text-align: left;
 }
 
-.lesson-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
+thead th {
+  background: #e8edf4;
+  font-weight: 700;
+  color: #1e3a5f;
+  text-align: center;
 }
 
-.lesson {
-  border: 1px dashed #cbd5f5;
-  border-radius: 10px;
-  padding: 10px 12px;
-}
-
-.lesson-title {
+tbody th {
+  background: #f5f7fa;
   font-weight: 600;
+  color: #374151;
+  width: 120px;
+  text-align: center;
 }
 
-.lesson-desc {
-  color: #4b5563;
-  font-size: 12px;
-  margin-top: 4px;
+.center {
+  text-align: center;
 }
 
-.lesson-hours {
-  color: #6b7280;
-  font-size: 12px;
-  margin-top: 4px;
-}`;
+.col-no { width: 50px; }
+.col-title { width: 160px; }
+.col-hours { width: 60px; }`;
 
 async function main() {
   const items = [

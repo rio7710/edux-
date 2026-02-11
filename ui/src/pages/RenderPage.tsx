@@ -76,6 +76,13 @@ export default function RenderPage() {
   return (
     <div>
       <h2>PDF 생성</h2>
+      <Alert
+        type="info"
+        showIcon
+        message="템플릿과 대상 ID를 지정해 PDF 렌더 작업을 등록합니다."
+        description="렌더는 백그라운드로 처리되며, 완료된 파일은 /pdf 경로에서 확인합니다."
+        style={{ marginBottom: 16 }}
+      />
 
       <Card style={{ maxWidth: 600 }}>
         <Form
