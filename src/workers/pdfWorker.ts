@@ -16,7 +16,7 @@ const connection = {
 const pdfWorker = new Worker(
   RENDER_QUEUE_NAME,
   async (job) => {
-    const { renderJobId, templateId, courseId, scheduleId } = job.data;
+    const { renderJobId, templateId, courseId, scheduleId, profileId, userId, targetType, targetId, label } = job.data;
     console.log(`[pdfWorker] Processing job ${job.id}: renderJobId=${renderJobId}`);
 
     // Update RenderJob status to processing
@@ -35,7 +35,7 @@ const pdfWorker = new Worker(
         throw new Error(`Template not found: ${templateId}`);
       }
 
-      // 2. Fetch Data (Course or Schedule)
+      // 2. Fetch Data (Course / Schedule / Instructor Profile)
       let data: any = {};
       let pdfFileName: string;
 
@@ -45,16 +45,47 @@ const pdfWorker = new Worker(
           include: { Lectures: { where: { deletedAt: null }, orderBy: { order: 'asc' } }, Schedules: true },
         });
         if (!data.course) throw new Error(`Course not found: ${courseId}`);
-        pdfFileName = `course-${courseId}.pdf`;
+        pdfFileName = `course-${courseId}-${renderJobId}.pdf`;
       } else if (scheduleId) {
         data.schedule = await prisma.courseSchedule.findUnique({
           where: { id: scheduleId, deletedAt: null },
           include: { Course: true, Instructor: true },
         });
         if (!data.schedule) throw new Error(`Schedule not found: ${scheduleId}`);
-        pdfFileName = `schedule-${scheduleId}.pdf`;
+        pdfFileName = `schedule-${scheduleId}-${renderJobId}.pdf`;
+      } else if (profileId) {
+        const profile = await prisma.instructorProfile.findUnique({
+          where: { id: profileId },
+          include: { User: true },
+        });
+        if (!profile) throw new Error(`InstructorProfile not found: ${profileId}`);
+
+        const instructor = await prisma.instructor.findFirst({
+          where: { userId: profile.userId, deletedAt: null },
+          include: {
+            CourseInstructors: { include: { Course: true } },
+            Schedules: true,
+          },
+        });
+
+        const mergedInstructor = {
+          ...(instructor || {}),
+          name: profile.displayName || profile.User?.name || instructor?.name,
+          title: profile.title ?? instructor?.title,
+          bio: profile.bio ?? instructor?.bio,
+          phone: profile.phone ?? instructor?.phone,
+          email: profile.User?.email ?? instructor?.email,
+          links: profile.links ?? instructor?.links,
+        };
+
+        data.instructor = mergedInstructor;
+        data.instructorProfile = profile;
+        data.courses = instructor?.CourseInstructors?.map((ci) => ci.Course) || [];
+        data.schedules = instructor?.Schedules || [];
+
+        pdfFileName = `instructor-profile-${profileId}-${renderJobId}.pdf`;
       } else {
-        throw new Error('Neither courseId nor scheduleId provided for rendering.');
+        throw new Error('No target provided for rendering.');
       }
 
       // 3. Render HTML with Handlebars
@@ -78,10 +109,30 @@ const pdfWorker = new Worker(
       const pdfUrl = await convertHtmlToPdf(fullHtml, pdfFileName);
 
       // 5. Update RenderJob status to done
-      await prisma.renderJob.update({
+      const completedJob = await prisma.renderJob.update({
         where: { id: renderJobId },
         data: { status: 'done', pdfUrl: pdfUrl },
       });
+
+      // 6. Create UserDocument (best-effort)
+      try {
+        const resolvedUserId = userId || completedJob.userId;
+        if (resolvedUserId) {
+          await prisma.userDocument.create({
+            data: {
+              userId: resolvedUserId,
+              renderJobId: completedJob.id,
+              templateId: completedJob.templateId,
+              targetType: completedJob.targetType || targetType || 'unknown',
+              targetId: completedJob.targetId || targetId || '',
+              label: label || undefined,
+              pdfUrl,
+            },
+          });
+        }
+      } catch (docError: any) {
+        console.error(`[pdfWorker] Failed to create UserDocument: ${docError?.message || docError}`);
+      }
 
       console.log(`[pdfWorker] Job ${job.id} completed. PDF: ${pdfUrl}`);
       return { pdfUrl };

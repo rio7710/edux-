@@ -35,6 +35,8 @@ model User {
   deletedAt         DateTime? // soft delete
   instructorProfile InstructorProfile?
   instructor        Instructor?        @relation("UserInstructor")
+  RenderJobs        RenderJob[]
+  UserDocuments     UserDocument[]
 }
 
 // ──────────────────────────────────────
@@ -165,6 +167,8 @@ model Template {
   createdAt DateTime          @default(now())
   updatedAt DateTime          @updatedAt
   Versions  TemplateVersion[]
+  RenderJobs RenderJob[]
+  UserDocuments UserDocument[]
 }
 
 model TemplateVersion {
@@ -191,6 +195,7 @@ enum JobStatus {
 
 model RenderJob {
   id           String    @id @default(cuid())
+  userId       String?
   templateId   String
   targetType   String // 'course' | 'schedule'
   targetId     String
@@ -198,6 +203,13 @@ model RenderJob {
   pdfUrl       String?
   errorMessage String?
   createdAt    DateTime  @default(now())
+
+  User     User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  Template Template @relation(fields: [templateId], references: [id])
+  UserDocuments UserDocument[]
+
+  @@index([userId])
+  @@index([targetType, targetId])
 }
 
 // ──────────────────────────────────────
@@ -233,4 +245,31 @@ model AppSetting {
   value     Json
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// ──────────────────────────────────────
+// 사용자 문서 (렌더 결과물 관리)
+// ──────────────────────────────────────
+
+model UserDocument {
+  id          String   @id @default(cuid())
+  userId      String
+  renderJobId String
+  templateId  String
+  targetType  String
+  targetId    String
+  label       String?
+  pdfUrl      String
+  shareToken  String?  @unique
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  User      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  RenderJob RenderJob @relation(fields: [renderJobId], references: [id])
+  Template  Template  @relation(fields: [templateId], references: [id])
+
+  @@index([userId])
+  @@index([shareToken])
+  @@index([targetType, targetId])
 }

@@ -103,6 +103,10 @@ export const userUpdateInstructorProfileSchema = {
   links: z.any().optional().describe("추가 링크 (JSON)"),
 };
 
+export const userGetInstructorProfileSchema = {
+  token: z.string().describe("액세스 토큰"),
+};
+
 export const userRefreshTokenSchema = {
   refreshToken: z.string().describe("리프레시 토큰"),
   accessToken: z.string().optional().describe("현재 액세스 토큰"),
@@ -1147,6 +1151,38 @@ export async function updateInstructorProfileHandler(args: {
     return {
       content: [
         { type: "text" as const, text: `강사 프로파일 수정 실패: ${message}` },
+      ],
+      isError: true,
+    };
+  }
+}
+
+export async function getInstructorProfileHandler(args: { token: string }) {
+  try {
+    const { user } = await verifyAndGetUser(args.token);
+    if (!user) {
+      return {
+        content: [
+          { type: "text" as const, text: "사용자를 찾을 수 없습니다." },
+        ],
+        isError: true,
+      };
+    }
+
+    const profile = await prisma.instructorProfile.findUnique({
+      where: { userId: user.id },
+    });
+
+    return {
+      content: [
+        { type: "text" as const, text: JSON.stringify(profile) },
+      ],
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    return {
+      content: [
+        { type: "text" as const, text: `강사 프로파일 조회 실패: ${message}` },
       ],
       isError: true,
     };

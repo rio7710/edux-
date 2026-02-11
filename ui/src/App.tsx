@@ -17,6 +17,7 @@ import RegisterPage from './pages/RegisterPage';
 import ProfilePage from './pages/ProfilePage';
 import UsersPage from './pages/UsersPage';
 import SiteSettingsPage from './pages/SiteSettingsPage';
+import MyDocumentsPage from './pages/MyDocumentsPage';
 import { mcpClient } from './api/mcpClient';
 
 const queryClient = new QueryClient({
@@ -55,6 +56,7 @@ function AppContent() {
           <Route path="instructors" element={<InstructorsPage />} />
           <Route path="templates" element={<TemplatesHubPage />} />
           <Route path="render" element={<RenderPage />} />
+          <Route path="documents" element={<MyDocumentsPage />} />
           <Route path="test-echo" element={<TestEchoPage />} />
           <Route path="profile" element={<ProfilePage />} />
           <Route path="admin/users" element={<UsersPage />} />

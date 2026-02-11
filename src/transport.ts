@@ -60,6 +60,8 @@ import {
 import {
   renderCoursePdfSchema,
   renderCoursePdfHandler,
+  renderInstructorProfilePdfSchema,
+  renderInstructorProfilePdfHandler,
   renderSchedulePdfSchema,
   renderSchedulePdfHandler,
 } from './tools/render.js';
@@ -100,6 +102,8 @@ import {
   requestInstructorHandler,
   userApproveInstructorSchema,
   approveInstructorHandler,
+  userGetInstructorProfileSchema,
+  getInstructorProfileHandler,
   userUpdateInstructorProfileSchema,
   updateInstructorProfileHandler,
 } from './tools/user.js';
@@ -109,6 +113,17 @@ import {
   siteSettingUpsertSchema,
   siteSettingUpsertHandler,
 } from './tools/siteSetting.js';
+import {
+  documentDeleteSchema,
+  documentDeleteHandler,
+  documentListSchema,
+  documentListHandler,
+  documentRevokeShareSchema,
+  documentRevokeShareHandler,
+  documentShareSchema,
+  documentShareHandler,
+} from './tools/document.js';
+import { prisma } from './services/prisma.js';
 
 const PORT = process.env.PORT || 7777;
 const app = express();
@@ -156,6 +171,7 @@ function createMcpServer(): McpServer {
   server.tool('template.delete', '템플릿 삭제', templateDeleteSchema, async (args) => templateDeleteHandler(args));
   server.tool('render.coursePdf', '코스 PDF 생성', renderCoursePdfSchema, async (args) => renderCoursePdfHandler(args));
   server.tool('render.schedulePdf', '일정 PDF 생성', renderSchedulePdfSchema, async (args) => renderSchedulePdfHandler(args));
+  server.tool('render.instructorProfilePdf', '강사 프로필 PDF 생성', renderInstructorProfilePdfSchema, async (args) => renderInstructorProfilePdfHandler(args));
   server.tool('tableConfig.get', '테이블 컬럼 설정 조회', tableConfigGetSchema, async (args) => tableConfigGetHandler(args));
   server.tool('tableConfig.upsert', '테이블 컬럼 설정 저장', tableConfigUpsertSchema, async (args) => tableConfigUpsertHandler(args));
   server.tool('test.echo', '에코 테스트', testEchoSchema, async (args) => testEchoHandler(args));
@@ -175,8 +191,13 @@ function createMcpServer(): McpServer {
   server.tool('user.requestInstructor', '강사 신청/프로파일 제출', userRequestInstructorSchema, async (args) => requestInstructorHandler(args));
   server.tool('user.approveInstructor', '강사 승인 (관리자)', userApproveInstructorSchema, async (args) => approveInstructorHandler(args));
   server.tool('user.updateInstructorProfile', '내 강사 프로파일 수정', userUpdateInstructorProfileSchema, async (args) => updateInstructorProfileHandler(args));
+  server.tool('user.getInstructorProfile', '내 강사 프로파일 조회', userGetInstructorProfileSchema, async (args) => getInstructorProfileHandler(args));
   server.tool('siteSetting.get', '사이트 설정 조회', siteSettingGetSchema, async (args) => siteSettingGetHandler(args));
   server.tool('siteSetting.upsert', '사이트 설정 저장', siteSettingUpsertSchema, async (args) => siteSettingUpsertHandler(args));
+  server.tool('document.list', '내 문서 목록 조회', documentListSchema, async (args) => documentListHandler(args));
+  server.tool('document.delete', '문서 삭제', documentDeleteSchema, async (args) => documentDeleteHandler(args));
+  server.tool('document.share', '문서 공유 토큰 생성/재발급', documentShareSchema, async (args) => documentShareHandler(args));
+  server.tool('document.revokeShare', '문서 공유 토큰 해제', documentRevokeShareSchema, async (args) => documentRevokeShareHandler(args));
 
   return server;
 }
@@ -187,6 +208,23 @@ app.use('/pdf', express.static('public/pdf'));
 
 // Serve uploaded files
 app.use('/uploads', express.static('public/uploads'));
+
+// Share endpoint
+app.get('/share/:shareToken', async (req, res) => {
+  try {
+    const doc = await prisma.userDocument.findUnique({
+      where: { shareToken: req.params.shareToken },
+      select: { pdfUrl: true, isActive: true },
+    });
+    if (!doc || !doc.isActive) {
+      res.status(404).json({ error: '문서를 찾을 수 없습니다.' });
+      return;
+    }
+    res.redirect(doc.pdfUrl);
+  } catch (error) {
+    res.status(500).json({ error: '공유 링크 처리 실패' });
+  }
+});
 
 // File upload configuration
 const storage = multer.diskStorage({

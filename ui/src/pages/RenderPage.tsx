@@ -13,6 +13,7 @@ import {
 import { FilePdfOutlined, DownloadOutlined } from '@ant-design/icons';
 import { useMutation } from '@tanstack/react-query';
 import { api } from '../api/mcpClient';
+import { useAuth } from '../contexts/AuthContext';
 
 interface RenderResult {
   jobId: string;
@@ -23,10 +24,11 @@ export default function RenderPage() {
   const [form] = Form.useForm();
   const [renderResult, setRenderResult] = useState<RenderResult | null>(null);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const { accessToken } = useAuth();
 
   const renderCourseMutation = useMutation({
-    mutationFn: ({ templateId, courseId }: { templateId: string; courseId: string }) =>
-      api.renderCoursePdf(templateId, courseId),
+    mutationFn: ({ templateId, courseId, label }: { templateId: string; courseId: string; label?: string }) =>
+      api.renderCoursePdf({ token: accessToken || '', templateId, courseId, label }),
     onSuccess: (result: unknown) => {
       const data = result as RenderResult;
       setRenderResult(data);
@@ -38,8 +40,21 @@ export default function RenderPage() {
   });
 
   const renderScheduleMutation = useMutation({
-    mutationFn: ({ templateId, scheduleId }: { templateId: string; scheduleId: string }) =>
-      api.renderSchedulePdf(templateId, scheduleId),
+    mutationFn: ({ templateId, scheduleId, label }: { templateId: string; scheduleId: string; label?: string }) =>
+      api.renderSchedulePdf({ token: accessToken || '', templateId, scheduleId, label }),
+    onSuccess: (result: unknown) => {
+      const data = result as RenderResult;
+      setRenderResult(data);
+      message.success('PDF 생성 작업이 등록되었습니다');
+    },
+    onError: (error: Error) => {
+      message.error(`PDF 생성 실패: ${error.message}`);
+    },
+  });
+
+  const renderProfileMutation = useMutation({
+    mutationFn: ({ templateId, profileId, label }: { templateId: string; profileId: string; label?: string }) =>
+      api.renderInstructorProfilePdf({ token: accessToken || '', templateId, profileId, label }),
     onSuccess: (result: unknown) => {
       const data = result as RenderResult;
       setRenderResult(data);
@@ -51,10 +66,15 @@ export default function RenderPage() {
   });
 
   const handleSubmit = async (values: {
-    type: 'course' | 'schedule';
+    type: 'course' | 'schedule' | 'instructor_profile';
     templateId: string;
     targetId: string;
+    label?: string;
   }) => {
+    if (!accessToken) {
+      message.warning('로그인 후 이용해주세요.');
+      return;
+    }
     setRenderResult(null);
     setPdfUrl(null);
 
@@ -62,16 +82,24 @@ export default function RenderPage() {
       renderCourseMutation.mutate({
         templateId: values.templateId,
         courseId: values.targetId,
+        label: values.label,
       });
-    } else {
+    } else if (values.type === 'schedule') {
       renderScheduleMutation.mutate({
         templateId: values.templateId,
         scheduleId: values.targetId,
+        label: values.label,
+      });
+    } else {
+      renderProfileMutation.mutate({
+        templateId: values.templateId,
+        profileId: values.targetId,
+        label: values.label,
       });
     }
   };
 
-  const isPending = renderCourseMutation.isPending || renderScheduleMutation.isPending;
+  const isPending = renderCourseMutation.isPending || renderScheduleMutation.isPending || renderProfileMutation.isPending;
 
   return (
     <div>
@@ -99,6 +127,7 @@ export default function RenderPage() {
             <Select>
               <Select.Option value="course">코스</Select.Option>
               <Select.Option value="schedule">일정</Select.Option>
+              <Select.Option value="instructor_profile">강사 프로필</Select.Option>
             </Select>
           </Form.Item>
 
@@ -119,18 +148,30 @@ export default function RenderPage() {
             {({ getFieldValue }) => (
               <Form.Item
                 name="targetId"
-                label={getFieldValue('type') === 'course' ? '코스 ID' : '일정 ID'}
+                label={
+                  getFieldValue('type') === 'course'
+                    ? '코스 ID'
+                    : getFieldValue('type') === 'schedule'
+                    ? '일정 ID'
+                    : '강사 프로필 ID'
+                }
                 rules={[{ required: true, message: 'ID를 입력하세요' }]}
               >
                 <Input
                   placeholder={
                     getFieldValue('type') === 'course'
                       ? '코스 ID를 입력하세요'
-                      : '일정 ID를 입력하세요'
+                      : getFieldValue('type') === 'schedule'
+                      ? '일정 ID를 입력하세요'
+                      : '강사 프로필 ID를 입력하세요'
                   }
                 />
               </Form.Item>
             )}
+          </Form.Item>
+
+          <Form.Item name="label" label="문서 라벨 (선택)">
+            <Input placeholder="예: 리더십 강사 소개서" />
           </Form.Item>
 
           <Form.Item>

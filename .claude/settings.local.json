@@ -36,7 +36,22 @@
       "Bash(node:*)",
       "Bash(net start:*)",
       "Bash(sc query:*)",
-      "Bash(npx prisma db push:*)"
+      "Bash(npx prisma db push:*)",
+      "Bash(npx kill-port:*)",
+      "Bash(find:*)",
+      "Bash(dir:*)",
+      "Bash(powershell -Command:*)",
+      "Bash(if not exist \"d:\\\\workSpace\\\\edux\\\\public\\\\uploads\" mkdir \"d:\\\\workSpace\\\\edux\\\\public\\\\uploads\")",
+      "Bash(cmd.exe /c \"for /f \"\"tokens=5\"\" %a in \\(''netstat -ano ^| findstr :7777 ^| findstr LISTENING''\\) do taskkill /F /PID %a\")",
+      "Bash(cmd.exe /c \"netstat -ano | findstr :7777\")",
+      "Bash(cmd.exe /c \"taskkill /F /IM node.exe\")",
+      "Bash(cmd.exe /c \"netstat -ano | findstr 7777\")",
+      "Bash(cmd.exe /c \"taskkill /F /IM node.exe 2>nul & timeout /t 3 /nobreak >nul & echo done\")",
+      "Bash(cmd.exe /c \"tasklist /FI \"\"IMAGENAME eq node.exe\"\" 2>nul\")",
+      "Bash(cmd.exe /c \"tasklist | findstr node\")",
+      "Bash(cmd.exe /c \"netstat -ano | findstr LISTENING | findstr 7777\")",
+      "Bash(cmd.exe /c \"timeout /t 5 /nobreak >nul && echo ready\")",
+      "Bash(cmd.exe /c \"taskkill /F /IM node.exe 2>nul & timeout /t 3 /nobreak >nul & echo cleaned\")"
     ]
   }
 }

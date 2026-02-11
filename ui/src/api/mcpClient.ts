@@ -342,11 +342,14 @@ export const api = {
     mcpClient.callTool("template.delete", data),
 
   // Render
-  renderCoursePdf: (templateId: string, courseId: string) =>
-    mcpClient.callTool("render.coursePdf", { templateId, courseId }),
+  renderCoursePdf: (data: { token: string; templateId: string; courseId: string; label?: string }) =>
+    mcpClient.callTool("render.coursePdf", data),
 
-  renderSchedulePdf: (templateId: string, scheduleId: string) =>
-    mcpClient.callTool("render.schedulePdf", { templateId, scheduleId }),
+  renderSchedulePdf: (data: { token: string; templateId: string; scheduleId: string; label?: string }) =>
+    mcpClient.callTool("render.schedulePdf", data),
+
+  renderInstructorProfilePdf: (data: { token: string; templateId: string; profileId: string; label?: string }) =>
+    mcpClient.callTool("render.instructorProfilePdf", data),
 
   // Test
   testEcho: (message: string) => mcpClient.callTool("test.echo", { message }),
@@ -415,6 +418,9 @@ export const api = {
     links?: any;
   }) => mcpClient.callTool("user.updateInstructorProfile", data),
 
+  getInstructorProfile: (token: string) =>
+    mcpClient.callTool("user.getInstructorProfile", { token }),
+
   userUpdateByAdmin: (data: {
     token: string;
     userId: string;
@@ -446,6 +452,19 @@ export const api = {
       fixed?: "left" | "right";
     }>;
   }) => mcpClient.callTool("tableConfig.upsert", data),
+
+  // Documents
+  documentList: (data: { token: string; page?: number; pageSize?: number }) =>
+    mcpClient.callTool("document.list", data),
+
+  documentDelete: (data: { token: string; id: string }) =>
+    mcpClient.callTool("document.delete", data),
+
+  documentShare: (data: { token: string; id: string; regenerate?: boolean }) =>
+    mcpClient.callTool("document.share", data),
+
+  documentRevokeShare: (data: { token: string; id: string }) =>
+    mcpClient.callTool("document.revokeShare", data),
 
   // File Upload (REST, not MCP)
   uploadFile: async (file: File): Promise<{ url: string }> => {

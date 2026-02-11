@@ -1,42 +1,89 @@
 # Deployment Guide
 
-## 1. 개요
+> 최종 업데이트: 2026-02-11
 
-Edux 프로젝트의 배포 환경, CI/CD 파이프라인, 환경 변수 관리 정책입니다.
-MCP 서버(백엔드) + React UI(프론트엔드) 구성을 다룹니다.
-
-## 2. 배포 환경
-
-| 환경 | 백엔드 URL | 프론트엔드 URL | 브랜치 |
-| --- | --- | --- | --- |
-| **Development** | `api-dev.edux.com` | `dev.edux.com` | `develop` |
-| **Staging** | `api-stg.edux.com` | `stg.edux.com` | `release/*` |
-| **Production** | `api.edux.com` | `edux.com` | `main` |
-
-## 3. 아키텍처
+## 1. 시스템 구성
 
 ```text
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   Nginx     │────▶│  MCP Server │────▶│  PostgreSQL │
-│  (Reverse   │     │  (Node.js)  │     │             │
-│   Proxy)    │     │             │────▶│   Redis     │
-└─────────────┘     └─────────────┘     └─────────────┘
-       │
-       │ /pdf/*
-       ▼
-┌─────────────┐
-│  Static     │
-│  (PDF files)│
-└─────────────┘
+                    ┌──────────────┐
+                    │   Nginx      │
+                    │  (리버스     │
+                    │   프록시)    │
+                    └──────┬───────┘
+                           │
+              ┌────────────┼────────────┐
+              │            │            │
+              ▼            ▼            ▼
+      ┌──────────┐  ┌──────────┐  ┌──────────────┐
+      │ React UI │  │ MCP 서버 │  │ /share/:token│
+      │ (정적)   │  │ (SSE)    │  │ (공유 링크)  │
+      └──────────┘  └────┬─────┘  └──────────────┘
+                         │
+              ┌──────────┼──────────┐
+              │          │          │
+              ▼          ▼          ▼
+      ┌──────────┐ ┌─────────┐ ┌────────────┐
+      │PostgreSQL│ │  Redis  │ │ PDF Worker │
+      │          │ │ (BullMQ)│ │ (Puppeteer)│
+      └──────────┘ └─────────┘ └────────────┘
 ```
 
-## 4. Docker 이미지
+### 프로세스 목록
 
-### 4.1. MCP 서버 (백엔드)
+| 프로세스 | 설명 | 포트 | 명령어 |
+|----------|------|------|--------|
+| MCP 서버 | API + SSE 통신 | 7777 | `node dist/transport.js` |
+| PDF Worker | BullMQ 큐 소비, PDF 생성 | - | `node dist/workers/pdfWorker.js` |
+| React UI | 프론트엔드 정적 파일 | 80 | Nginx 서빙 |
+| PostgreSQL | 메인 DB | 5432 | - |
+| Redis | PDF 렌더 큐 | 6379 | - |
+
+> PDF Worker는 MCP 서버와 **별도 프로세스**로 실행해야 합니다.
+
+---
+
+## 2. 환경 변수
+
+### .env.example
+
+```bash
+# ── Database ──
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/hrdb?schema=public"
+
+# ── Redis (PDF 렌더 큐) ──
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_PASSWORD=
+
+# ── JWT ──
+JWT_SECRET=change-this-in-production
+
+# ── PDF ──
+PDF_CONCURRENCY=2
+PUPPETEER_EXECUTABLE_PATH=  # Docker: /usr/bin/chromium-browser
+
+# ── Server ──
+PORT=7777
+NODE_ENV=production
+```
+
+### 환경별 관리
+
+| 환경 | 시크릿 관리 |
+|------|------------|
+| 로컬 | `.env` 파일 (커밋 금지) |
+| CI/CD | GitHub Secrets |
+| 프로덕션 | AWS Secrets Manager / Azure Key Vault |
+
+---
+
+## 3. Docker
+
+### 3.1. 백엔드 Dockerfile
 
 ```dockerfile
 # Dockerfile
-FROM node:18-alpine AS builder
+FROM node:20-alpine AS builder
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
@@ -44,10 +91,10 @@ COPY . .
 RUN npm run build
 RUN npx prisma generate
 
-FROM node:18-alpine AS runner
+FROM node:20-alpine AS runner
 WORKDIR /app
 
-# Puppeteer 의존성
+# Puppeteer 의존성 (PDF Worker용)
 RUN apk add --no-cache chromium
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
@@ -60,11 +107,11 @@ EXPOSE 7777
 CMD ["node", "dist/transport.js"]
 ```
 
-### 4.2. React UI (프론트엔드)
+### 3.2. 프론트엔드 Dockerfile
 
 ```dockerfile
 # ui/Dockerfile
-FROM node:18-alpine AS builder
+FROM node:20-alpine AS builder
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
@@ -78,7 +125,7 @@ EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]
 ```
 
-### 4.3. Nginx 설정 (프론트엔드)
+### 3.3. Nginx 설정
 
 ```nginx
 # ui/nginx.conf
@@ -93,7 +140,30 @@ server {
         try_files $uri $uri/ /index.html;
     }
 
-    # 캐싱
+    # API 프록시
+    location /sse {
+        proxy_pass http://mcp-server:7777;
+        proxy_http_version 1.1;
+        proxy_set_header Connection '';
+        proxy_buffering off;
+        chunked_transfer_encoding off;
+    }
+
+    location /messages {
+        proxy_pass http://mcp-server:7777;
+    }
+
+    # PDF 파일 서빙
+    location /pdf/ {
+        proxy_pass http://mcp-server:7777;
+    }
+
+    # 공유 링크
+    location /share/ {
+        proxy_pass http://mcp-server:7777;
+    }
+
+    # 정적 자산 캐싱
     location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg)$ {
         expires 1y;
         add_header Cache-Control "public, immutable";
@@ -101,12 +171,12 @@ server {
 }
 ```
 
-## 5. Docker Compose (로컬/개발)
+---
+
+## 4. Docker Compose
 
 ```yaml
 # docker-compose.yml
-version: '3.8'
-
 services:
   postgres:
     image: postgres:16-alpine
@@ -118,6 +188,10 @@ services:
       - '5432:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 5s
+      retries: 5
 
   redis:
     image: redis:7-alpine
@@ -125,6 +199,10 @@ services:
       - '6379:6379'
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      retries: 5
 
   mcp-server:
     build: .
@@ -132,12 +210,33 @@ services:
       - '7777:7777'
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/hrdb
-      REDIS_URL: redis://redis:6379
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
       JWT_SECRET: ${JWT_SECRET}
       PDF_CONCURRENCY: 2
+      NODE_ENV: production
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - pdf_data:/app/public/pdf
+
+  pdf-worker:
+    build: .
+    command: ['node', 'dist/workers/pdfWorker.js']
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/hrdb
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      PDF_CONCURRENCY: 2
+      PUPPETEER_EXECUTABLE_PATH: /usr/bin/chromium-browser
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     volumes:
       - pdf_data:/app/public/pdf
 
@@ -154,7 +253,70 @@ volumes:
   pdf_data:
 ```
 
-## 6. CI/CD 파이프라인 (GitHub Actions)
+---
+
+## 5. 배포 절차
+
+### 5.1. 첫 배포
+
+```bash
+# 1. 이미지 빌드
+docker compose build
+
+# 2. DB 마이그레이션
+docker compose run --rm mcp-server npx prisma migrate deploy
+
+# 3. 시드 데이터 (선택)
+docker compose run --rm mcp-server npx tsx scripts/seed-templates.ts
+
+# 4. 전체 기동
+docker compose up -d
+
+# 5. 상태 확인
+docker compose ps
+curl http://localhost:7777/health
+```
+
+### 5.2. 업데이트 배포
+
+```bash
+# 1. 최신 코드
+git pull origin main
+
+# 2. 이미지 재빌드
+docker compose build
+
+# 3. DB 마이그레이션 (스키마 변경 시)
+docker compose run --rm mcp-server npx prisma migrate deploy
+
+# 4. 서비스 재시작
+docker compose up -d
+
+# 5. 롤백 (문제 발생 시)
+docker compose down
+git checkout <previous-tag>
+docker compose build && docker compose up -d
+```
+
+### 5.3. PM2 (Docker 없이 직접 배포)
+
+```bash
+# 빌드
+npm run build
+npx prisma migrate deploy
+
+# PM2 실행
+pm2 start dist/transport.js --name edux-server
+pm2 start dist/workers/pdfWorker.js --name edux-worker
+
+# UI는 nginx에서 정적 서빙
+cd ui && npm run build
+# dist/ 폴더를 nginx root로 복사
+```
+
+---
+
+## 6. CI/CD (GitHub Actions)
 
 ```yaml
 # .github/workflows/deploy.yml
@@ -188,23 +350,20 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
           cache: 'npm'
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run tests
-        run: npm test
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npm test
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/hrdb_test
-          REDIS_URL: redis://localhost:6379
+          REDIS_HOST: localhost
+          REDIS_PORT: 6379
+          JWT_SECRET: test-secret
 
-      - name: Install UI dependencies
-        run: cd ui && npm ci
-
-      - name: Run UI tests
-        run: cd ui && npm test
+      - run: cd ui && npm ci
+      - run: cd ui && npm run build
 
   build-and-push:
     needs: test
@@ -216,8 +375,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Log in to Container Registry
-        uses: docker/login-action@v3
+      - uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -237,149 +395,59 @@ jobs:
           push: true
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/ui:${{ github.sha }}
 
-  deploy-dev:
-    if: github.ref == 'refs/heads/develop'
+  deploy:
     needs: build-and-push
     runs-on: ubuntu-latest
-    environment: development
+    environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'development' }}
 
     steps:
-      - name: Deploy to Development
+      - name: Deploy
         run: |
-          # kubectl, helm, 또는 SSH 배포 스크립트
-          echo "Deploying to development..."
-
-  deploy-staging:
-    if: startsWith(github.ref, 'refs/heads/release/')
-    needs: build-and-push
-    runs-on: ubuntu-latest
-    environment: staging
-
-    steps:
-      - name: Deploy to Staging
-        run: |
-          echo "Deploying to staging..."
-
-  deploy-prod:
-    if: github.ref == 'refs/heads/main'
-    needs: build-and-push
-    runs-on: ubuntu-latest
-    environment: production
-
-    steps:
-      - name: Deploy to Production
-        run: |
-          echo "Deploying to production..."
+          echo "Deploying ${{ github.sha }} to ${{ github.ref }}..."
+          # SSH, kubectl, 또는 클라우드 CLI로 배포
 ```
-
-## 7. 환경 변수 관리
-
-### 7.1. 환경별 변수
-
-| 변수 | 설명 | 예시 |
-| --- | --- | --- |
-| `DATABASE_URL` | PostgreSQL 연결 문자열 | `postgresql://user:pass@host:5432/db` |
-| `REDIS_URL` | Redis 연결 문자열 | `redis://host:6379` |
-| `JWT_SECRET` | JWT 서명 키 | (시크릿 매니저) |
-| `PDF_CONCURRENCY` | 동시 PDF 생성 수 | `2` |
-| `NODE_ENV` | 환경 구분 | `production` |
-
-### 7.2. 시크릿 관리
-
-- **GitHub Secrets**: CI/CD 파이프라인용
-- **AWS Secrets Manager** 또는 **Azure Key Vault**: 런타임 시크릿
-- `.env` 파일은 로컬 개발 전용, **절대 커밋 금지**
-
-## 8. MCP 서버 배포 모드
-
-### 8.1. SSE 모드 (운영)
-
-웹 클라이언트, React UI와 통신합니다.
-
-```bash
-# 환경 변수 설정 후
-node dist/transport.js
-# 또는 PM2
-pm2 start dist/transport.js --name edux-mcp
-```
-
-### 8.2. stdio 모드 (Claude Desktop)
-
-stdio 모드는 로컬 Claude Desktop 전용입니다.
-서버 배포 대상이 아니며, 사용자 PC에서 직접 실행합니다.
-
-```json
-// claude_desktop_config.json (사용자 PC)
-{
-  "mcpServers": {
-    "edux": {
-      "command": "npx",
-      "args": ["tsx", "src/mcp-server.ts"]
-    }
-  }
-}
-```
-
-## 9. 데이터베이스 마이그레이션
-
-### 9.1. 개발/스테이징
-
-```bash
-npx prisma migrate dev --name <migration_name>
-```
-
-### 9.2. 프로덕션
-
-```bash
-npx prisma migrate deploy
-```
-
-### 9.3. CI에서 자동 마이그레이션
-
-```yaml
-- name: Run migrations
-  run: npx prisma migrate deploy
-  env:
-    DATABASE_URL: ${{ secrets.DATABASE_URL }}
-```
-
-## 10. 모니터링
-
-### 10.1. 로깅
-
-- **Winston** 또는 **Pino**로 구조화된 JSON 로그
-- **Fluentd** → **Elasticsearch** 또는 **CloudWatch Logs**
-
-### 10.2. 메트릭
-
-- **Prometheus** + **Grafana** 또는 **CloudWatch**
-- 주요 지표:
-  - MCP 툴 호출 수/지연시간
-  - PDF 렌더 큐 길이
-  - 에러율
-
-### 10.3. 알림
-
-- **Slack** 또는 **PagerDuty** 연동
-- 트리거:
-  - 에러율 > 1%
-  - PDF 큐 대기 > 10개
-  - 서버 다운
-
-## 11. 백업 정책
-
-| 대상 | 주기 | 보관 기간 |
-| --- | --- | --- |
-| PostgreSQL | 일 1회 | 30일 |
-| PDF 파일 | (필요 시 S3 전환) | 30일 |
-| Redis | 백업 불필요 (캐시) | - |
-
-## 12. 롤백 절차
-
-1. 이전 이미지 태그 확인: `ghcr.io/org/edux/mcp-server:<previous-sha>`
-2. Kubernetes: `kubectl rollout undo deployment/mcp-server`
-3. Docker Compose: `docker-compose up -d --force-recreate`
 
 ---
 
-**관련 문서:** `ARCHITECTURE.md`, `SECURITY.md`, `SETUP_WINDOWS.md`
+## 7. DB 마이그레이션
+
+| 환경 | 명령어 | 설명 |
+|------|--------|------|
+| 개발 | `npx prisma migrate dev --name <name>` | 마이그레이션 파일 생성 + 적용 |
+| 프로덕션 | `npx prisma migrate deploy` | 기존 마이그레이션 파일 적용만 |
+| 긴급 | `npx prisma db push` | 마이그레이션 파일 없이 스키마 동기화 (주의) |
+
+---
+
+## 8. 헬스 체크
+
+```bash
+# MCP 서버
+curl http://localhost:7777/health
+
+# PostgreSQL
+pg_isready -h localhost -p 5432
+
+# Redis
+redis-cli ping
+```
+
+---
+
+## 9. 백업
+
+| 대상 | 주기 | 보관 | 명령어 |
+|------|------|------|--------|
+| PostgreSQL | 일 1회 | 30일 | `pg_dump -U postgres hrdb > backup.sql` |
+| PDF 파일 | 필요 시 | - | S3 sync 또는 볼륨 백업 |
+| Redis | 불필요 | - | 큐 데이터, 재생성 가능 |
+
+---
+
+## 10. 배포 환경
+
+| 환경 | 백엔드 | 프론트엔드 | 브랜치 |
+|------|--------|-----------|--------|
+| Development | api-dev.edux.com | dev.edux.com | develop |
+| Staging | api-stg.edux.com | stg.edux.com | release/* |
+| Production | api.edux.com | edux.com | main |

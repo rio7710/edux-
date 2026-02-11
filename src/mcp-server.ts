@@ -33,6 +33,8 @@ import {
 import {
     renderCoursePdfHandler,
     renderCoursePdfSchema,
+    renderInstructorProfilePdfHandler,
+    renderInstructorProfilePdfSchema,
     renderSchedulePdfHandler,
     renderSchedulePdfSchema,
 } from "./tools/render.js"; // Import render tools
@@ -82,6 +84,8 @@ import {
     userGetSchema,
     userRegisterHandler,
     userRegisterSchema,
+    userGetInstructorProfileSchema,
+    getInstructorProfileHandler,
     userRequestInstructorSchema,
     userUpdateByAdminHandler,
     userUpdateByAdminSchema,
@@ -101,6 +105,16 @@ import {
     siteSettingUpsertSchema,
     siteSettingUpsertHandler,
 } from "./tools/siteSetting.js";
+import {
+    documentDeleteHandler,
+    documentDeleteSchema,
+    documentListHandler,
+    documentListSchema,
+    documentRevokeShareHandler,
+    documentRevokeShareSchema,
+    documentShareHandler,
+    documentShareSchema,
+} from "./tools/document.js";
 
 // MCP 서버 인스턴스 생성
 const server = new McpServer({
@@ -270,6 +284,12 @@ server.tool(
   renderSchedulePdfSchema,
   async (args) => renderSchedulePdfHandler(args),
 );
+server.tool(
+  "render.instructorProfilePdf",
+  "강사 프로필 데이터 + 템플릿으로 PDF를 생성합니다. (비동기 처리)",
+  renderInstructorProfilePdfSchema,
+  async (args) => renderInstructorProfilePdfHandler(args),
+);
 
 // 툴 등록: tableConfig.get
 server.tool(
@@ -423,6 +443,15 @@ server.tool(
     return updateInstructorProfileHandler(args);
   },
 );
+server.tool(
+  "user.getInstructorProfile",
+  "내 강사 프로파일 조회",
+  userGetInstructorProfileSchema,
+  async (args) => {
+    console.error("[DEBUG] Registering tool: user.getInstructorProfile");
+    return getInstructorProfileHandler(args);
+  },
+);
 
 // 툴 등록: siteSetting.get/upsert
 server.tool(
@@ -436,6 +465,32 @@ server.tool(
   "사이트 설정 저장",
   siteSettingUpsertSchema,
   async (args) => siteSettingUpsertHandler(args),
+);
+
+// 툴 등록: document
+server.tool(
+  "document.list",
+  "내 문서 목록 조회",
+  documentListSchema,
+  async (args) => documentListHandler(args),
+);
+server.tool(
+  "document.delete",
+  "문서 삭제 (비활성화)",
+  documentDeleteSchema,
+  async (args) => documentDeleteHandler(args),
+);
+server.tool(
+  "document.share",
+  "문서 공유 토큰 생성/재발급",
+  documentShareSchema,
+  async (args) => documentShareHandler(args),
+);
+server.tool(
+  "document.revokeShare",
+  "문서 공유 토큰 해제",
+  documentRevokeShareSchema,
+  async (args) => documentRevokeShareHandler(args),
 );
 
 // Express 서버로 MCP HTTP transport 실행

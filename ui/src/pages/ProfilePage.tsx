@@ -12,10 +12,11 @@ import {
     Input,
     message,
     Modal,
+    Select,
     Tag,
     Typography,
 } from "antd";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api/mcpClient";
 import { useAuth } from "../contexts/AuthContext";
@@ -29,6 +30,7 @@ export default function ProfilePage() {
   const [passwordForm] = Form.useForm();
   const [deleteForm] = Form.useForm();
   const [instructorForm] = Form.useForm();
+  const [exportForm] = Form.useForm();
   const [nameLoading, setNameLoading] = useState(false);
   const [passwordLoading, setPasswordLoading] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
@@ -36,6 +38,9 @@ export default function ProfilePage() {
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [instructorProfileLoading, setInstructorProfileLoading] =
     useState(false);
+  const [exportLoading, setExportLoading] = useState(false);
+  const [templates, setTemplates] = useState<Array<{ id: string; name: string }>>([]);
+  const [profileId, setProfileId] = useState<string | null>(null);
 
   if (!user || !accessToken) {
     return (
@@ -148,6 +153,56 @@ export default function ProfilePage() {
     instructor: { color: "green", text: "강의자" },
     viewer: { color: "default", text: "조회자" },
     guest: { color: "gray", text: "게스트" },
+  };
+
+  useEffect(() => {
+    if (!accessToken || user?.role !== "instructor") return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const [profileResult, templateResult] = await Promise.all([
+          api.getInstructorProfile(accessToken) as Promise<{ id?: string | null } | null>,
+          api.templateList(1, 50, "instructor_profile") as Promise<{ items: { id: string; name: string }[] }>,
+        ]);
+        if (cancelled) return;
+        setProfileId(profileResult?.id || null);
+        setTemplates(templateResult?.items || []);
+      } catch (error) {
+        if (!cancelled) {
+          message.error("내보내기 정보를 불러오지 못했습니다.");
+        }
+      }
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, user?.role]);
+
+  const handleExportProfile = async (values: { templateId: string; label?: string }) => {
+    if (!accessToken) {
+      message.warning("로그인 후 이용해주세요.");
+      return;
+    }
+    if (!profileId) {
+      message.warning("강사 프로필이 없습니다.");
+      return;
+    }
+    setExportLoading(true);
+    try {
+      await api.renderInstructorProfilePdf({
+        token: accessToken,
+        templateId: values.templateId,
+        profileId,
+        label: values.label,
+      });
+      message.success("내보내기 작업이 등록되었습니다. 내 문서함에서 확인하세요.");
+      exportForm.resetFields();
+    } catch (error) {
+      message.error(parseError((error as Error).message));
+    } finally {
+      setExportLoading(false);
+    }
   };
 
   return (
@@ -306,12 +361,13 @@ export default function ProfilePage() {
           </Form>
         </Card>
       ) : (
-        <Card title="강사 프로파일 수정" style={{ marginBottom: 24 }}>
-          <Form
-            form={instructorForm}
-            onFinish={handleUpdateInstructorProfile}
-            layout="vertical"
-          >
+        <>
+          <Card title="강사 프로파일 수정" style={{ marginBottom: 24 }}>
+            <Form
+              form={instructorForm}
+              onFinish={handleUpdateInstructorProfile}
+              layout="vertical"
+            >
             <Form.Item
               name="displayName"
               label="표시 이름"
@@ -348,8 +404,31 @@ export default function ProfilePage() {
                 프로파일 업데이트
               </Button>
             </Form.Item>
-          </Form>
-        </Card>
+            </Form>
+          </Card>
+          <Card title="프로필 내보내기" style={{ marginBottom: 24 }}>
+            <Form form={exportForm} layout="vertical" onFinish={handleExportProfile}>
+              <Form.Item
+                name="templateId"
+                label="템플릿 선택"
+                rules={[{ required: true, message: "템플릿을 선택하세요" }]}
+              >
+                <Select
+                  placeholder="강사 프로필 템플릿 선택"
+                  options={templates.map((t) => ({ value: t.id, label: t.name }))}
+                />
+              </Form.Item>
+              <Form.Item name="label" label="문서 라벨 (선택)">
+                <Input placeholder="예: 리더십 강사 소개서" />
+              </Form.Item>
+              <Form.Item>
+                <Button type="primary" htmlType="submit" loading={exportLoading}>
+                  내보내기
+                </Button>
+              </Form.Item>
+            </Form>
+          </Card>
+        </>
       )}
 
       {/* Account Delete */}

@@ -11,6 +11,7 @@ import {
   LoginOutlined,
   TeamOutlined,
   SettingOutlined,
+  InboxOutlined,
 } from '@ant-design/icons';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -60,6 +61,13 @@ export default function Layout() {
       icon: <FilePdfOutlined />,
       label: 'PDF 생성',
     },
+    ...(isAuthenticated ? [
+      {
+        key: '/documents',
+        icon: <InboxOutlined />,
+        label: '내 문서함',
+      },
+    ] : []),
     // Member management section
     ...(isAuthenticated ? [
       {
