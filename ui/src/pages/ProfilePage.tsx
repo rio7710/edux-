@@ -498,16 +498,50 @@ export default function ProfilePage() {
       message.warning("로그인 후 이용해주세요.");
       return;
     }
-    if (!profileId) {
-      message.warning("강사 프로필이 없습니다.");
-      return;
-    }
     setExportLoading(true);
     try {
+      let resolvedProfileId = profileId;
+      if (!resolvedProfileId) {
+        const latest = (await api.getInstructorProfile(
+          accessToken,
+        )) as InstructorProfileData | null;
+        resolvedProfileId = latest?.id || null;
+      }
+      if (!resolvedProfileId) {
+        const detailName =
+          (instructorDetailForm.getFieldValue("name") as string | undefined) ||
+          user.name;
+        const detailTitle = instructorDetailForm.getFieldValue("title") as
+          | string
+          | undefined;
+        const detailBio = instructorDetailForm.getFieldValue("bio") as
+          | string
+          | undefined;
+        const detailPhone = instructorDetailForm.getFieldValue("phone") as
+          | string
+          | undefined;
+        await api.updateInstructorProfile({
+          token: accessToken,
+          displayName: detailName,
+          title: toOptionalString(detailTitle),
+          bio: toOptionalString(detailBio),
+          phone: toOptionalString(detailPhone),
+          website: user.website ?? undefined,
+        });
+        const created = (await api.getInstructorProfile(
+          accessToken,
+        )) as InstructorProfileData | null;
+        resolvedProfileId = created?.id || null;
+      }
+      if (!resolvedProfileId) {
+        message.warning("강사 프로필이 없어 내보내기를 진행할 수 없습니다.");
+        return;
+      }
+      setProfileId(resolvedProfileId);
       await api.renderInstructorProfilePdf({
         token: accessToken,
         templateId: values.templateId,
-        profileId,
+        profileId: resolvedProfileId,
         label: values.label,
       });
       message.success("내보내기 작업이 등록되었습니다. 내 문서함에서 확인하세요.");

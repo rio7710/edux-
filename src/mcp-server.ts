@@ -7,6 +7,18 @@ import {
     courseGetSchema,
     courseListHandler,
     courseListSchema,
+    courseShareInviteHandler,
+    courseShareInviteSchema,
+    courseShareListReceivedHandler,
+    courseShareListReceivedSchema,
+    courseShareListForCourseHandler,
+    courseShareListForCourseSchema,
+    courseShareRevokeHandler,
+    courseShareRevokeSchema,
+    courseShareTargetsHandler,
+    courseShareTargetsSchema,
+    courseShareRespondHandler,
+    courseShareRespondSchema,
     courseUpsertHandler,
     courseUpsertSchema,
 } from "./tools/course.js";
@@ -98,6 +110,8 @@ import {
     userRefreshTokenHandler,
     userIssueTestTokenSchema,
     userIssueTestTokenHandler,
+    userImpersonateSchema,
+    userImpersonateHandler,
 } from "./tools/user.js";
 import {
     siteSettingGetSchema,
@@ -144,6 +158,42 @@ server.tool(
   "코스 목록 조회 (등록자 이름으로 표시)",
   courseListSchema,
   async (args) => courseListHandler(args),
+);
+server.tool(
+  "course.shareInvite",
+  "코스 공유 초대 생성",
+  courseShareInviteSchema,
+  async (args) => courseShareInviteHandler(args),
+);
+server.tool(
+  "course.shareRespond",
+  "코스 공유 수락/거절",
+  courseShareRespondSchema,
+  async (args) => courseShareRespondHandler(args),
+);
+server.tool(
+  "course.shareListReceived",
+  "내 코스 공유 요청 목록 조회",
+  courseShareListReceivedSchema,
+  async (args) => courseShareListReceivedHandler(args),
+);
+server.tool(
+  "course.shareListForCourse",
+  "코스별 공유 대상 목록 조회",
+  courseShareListForCourseSchema,
+  async (args) => courseShareListForCourseHandler(args),
+);
+server.tool(
+  "course.shareRevoke",
+  "코스 공유 해제",
+  courseShareRevokeSchema,
+  async (args) => courseShareRevokeHandler(args),
+);
+server.tool(
+  "course.shareTargets",
+  "코스 공유 대상 사용자 목록 조회",
+  courseShareTargetsSchema,
+  async (args) => courseShareTargetsHandler(args),
 );
 
 // 툴 등록: instructor.upsert
@@ -346,6 +396,16 @@ server.tool(
   async (args) => {
     console.error("[DEBUG] Registering tool: user.issueTestToken");
     return userIssueTestTokenHandler(args);
+  },
+);
+
+server.tool(
+  "user.impersonate",
+  "관리자용 가장 로그인 (개발 전용)",
+  userImpersonateSchema,
+  async (args) => {
+    console.error("[DEBUG] Registering tool: user.impersonate");
+    return userImpersonateHandler(args);
   },
 );
 

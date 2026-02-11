@@ -40,11 +40,29 @@ const pdfWorker = new Worker(
       let pdfFileName: string;
 
       if (courseId) {
-        data.course = await prisma.course.findUnique({
+        const course = await prisma.course.findUnique({
           where: { id: courseId, deletedAt: null },
-          include: { Lectures: { where: { deletedAt: null }, orderBy: { order: 'asc' } }, Schedules: true },
+          include: {
+            Lectures: { where: { deletedAt: null }, orderBy: { order: 'asc' } },
+            Schedules: { where: { deletedAt: null }, include: { Instructor: true } },
+            CourseInstructors: { include: { Instructor: true } },
+          },
         });
-        if (!data.course) throw new Error(`Course not found: ${courseId}`);
+        if (!course) throw new Error(`Course not found: ${courseId}`);
+        const instructors =
+          course.CourseInstructors?.map((ci) => ci.Instructor).filter(Boolean) || [];
+        data.course = {
+          ...course,
+          Instructors: instructors,
+          instructorIds: instructors.map((i) => i.id),
+        };
+        // Keep worker render payload aligned with UI preview payload.
+        data.instructors = instructors;
+        data.lectures = course.Lectures || [];
+        data.modules = course.Lectures || [];
+        data.schedules = course.Schedules || [];
+        data.courseLectures = course.Lectures || [];
+        data.courseSchedules = course.Schedules || [];
         pdfFileName = `course-${courseId}-${renderJobId}.pdf`;
       } else if (scheduleId) {
         data.schedule = await prisma.courseSchedule.findUnique({

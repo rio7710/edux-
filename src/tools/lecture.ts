@@ -68,9 +68,29 @@ export async function lectureUpsertHandler(args: {
   token?: string;
 }) {
   try {
+    if (!args.token) {
+      return {
+        content: [{ type: "text" as const, text: "인증이 필요합니다." }],
+        isError: true,
+      };
+    }
+    let actorUserId: string | undefined;
+    let actorRole: string | undefined;
+    try {
+      const payload = verifyToken(args.token);
+      actorUserId = payload.userId;
+      actorRole = payload.role;
+    } catch {
+      return {
+        content: [{ type: "text" as const, text: "인증 실패" }],
+        isError: true,
+      };
+    }
+
     // 코스 존재 확인
     const course = await prisma.course.findUnique({
       where: { id: args.courseId, deletedAt: null },
+      select: { id: true, createdBy: true },
     });
     if (!course) {
       return {
@@ -80,19 +100,18 @@ export async function lectureUpsertHandler(args: {
         isError: true,
       };
     }
+    const canManage =
+      actorRole === "admin" ||
+      actorRole === "operator" ||
+      (course.createdBy && course.createdBy === actorUserId);
+    if (!canManage) {
+      return {
+        content: [{ type: "text" as const, text: "본인 코스만 수정할 수 있습니다." }],
+        isError: true,
+      };
+    }
 
     const lectureId = args.id || `l_${Date.now()}`;
-
-    // 토큰에서 사용자 ID 추출
-    let createdBy: string | undefined;
-    if (args.token) {
-      try {
-        const payload = verifyToken(args.token);
-        createdBy = payload.userId;
-      } catch {
-        // 토큰 검증 실패시 무시
-      }
-    }
 
     const lecture = await prisma.lecture.upsert({
       where: { id: lectureId },
@@ -103,7 +122,7 @@ export async function lectureUpsertHandler(args: {
         description: args.description ?? undefined,
         hours: args.hours ?? undefined,
         order: args.order ?? undefined,
-        createdBy,
+        createdBy: actorUserId,
       },
       update: {
         title: args.title,
@@ -217,8 +236,35 @@ export async function lectureDeleteHandler(args: {
   token?: string;
 }) {
   try {
+    if (!args.token) {
+      return {
+        content: [{ type: "text" as const, text: "인증이 필요합니다." }],
+        isError: true,
+      };
+    }
+    let actorUserId: string | undefined;
+    let actorRole: string | undefined;
+    try {
+      const payload = verifyToken(args.token);
+      actorUserId = payload.userId;
+      actorRole = payload.role;
+    } catch {
+      return {
+        content: [{ type: "text" as const, text: "인증 실패" }],
+        isError: true,
+      };
+    }
+
     const lecture = await prisma.lecture.findUnique({
       where: { id: args.id, deletedAt: null },
+      include: {
+        Course: {
+          select: {
+            id: true,
+            createdBy: true,
+          },
+        },
+      },
     });
 
     if (!lecture) {
@@ -226,6 +272,16 @@ export async function lectureDeleteHandler(args: {
         content: [
           { type: "text" as const, text: `Lecture not found: ${args.id}` },
         ],
+        isError: true,
+      };
+    }
+    const canManage =
+      actorRole === "admin" ||
+      actorRole === "operator" ||
+      (lecture.Course?.createdBy && lecture.Course.createdBy === actorUserId);
+    if (!canManage) {
+      return {
+        content: [{ type: "text" as const, text: "본인 코스만 수정할 수 있습니다." }],
         isError: true,
       };
     }

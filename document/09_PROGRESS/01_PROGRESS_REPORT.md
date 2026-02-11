@@ -1,6 +1,6 @@
 # 프로젝트 진행 상황 보고서
 
-**최종 업데이트:** 2026년 2월 10일 화요일
+**최종 업데이트:** 2026년 2월 11일 수요일
 
 ---
 
@@ -13,6 +13,7 @@ HR 강의 계획서를 관리하고 PDF로 출력하는 MCP(Model Context Protoc
 ## 변경 이력
 
 - 2026-02-10: 문서 정합성 정리(PDF 렌더 흐름/템플릿 가이드/업로드/시드 스크립트) 업데이트
+- 2026-02-11: 연락처 단일화(User.phone/website), 강사/코스 내보내기 흐름 보강, 코스 공유/권한 제어 1차 반영
 
 ---
 
@@ -181,6 +182,31 @@ edux/
 - 코스 수정 모달에 강사 다중 선택/추가/삭제 UI 반영
 - 강사 상세에 등록된 코스 목록 표시
 - 강사 계정 일괄 생성·매핑 스크립트 추가 (`scripts/backfill-instructor-users.ts`)
+
+### Phase 13: 프로필/문서화 정비 + 코스 공유 접근 제어 (2026-02-11)
+
+**변경 내역**:
+- 연락처 단일 소스 전환
+  - `User.phone`, `User.website` 기준으로 동기화
+  - `Instructor.phone`, `InstructorProfile.phone/website` 레거시 컬럼 제거
+  - 백필 스크립트 추가: `scripts/backfill-user-contact.ts`
+- 내 정보/강사 상세 동기화 개선
+  - ProfilePage에서 이름/전화/웹사이트 직접 관리
+  - 강사 상세 저장 시 `User.phone` 동기화 보장
+- 공유 링크 개선
+  - Vite 프록시에 `/share` 추가하여 공유 URL 접속 시 백엔드 `/share/:token` 정상 라우팅
+- 강사 소개 템플릿 확장
+  - `ALL_강사소개_샘플` 템플릿 추가(사진 포함, 전체 필드 렌더)
+  - 시드 스크립트: `scripts/seed-all-instructor-template.ts`
+- 코스 공유 모델 도입 (1차)
+  - `CourseShare` 모델 + 상태(`pending/accepted/rejected`) 추가
+  - 코스 목록/조회/내보내기 접근: 본인 생성 + 수락 공유, 관리자/운영자 전체 허용
+  - 코스 모달 공유 체크 UX + 공유 요청함(수락/거절) 추가
+- 권한 강화
+  - 코스/강의/일정 수정은 본인 코스만 허용
+  - 관리자/운영자는 예외적으로 전체 수정 허용
+- PDF 누락 수정
+  - 코스 PDF 워커 payload를 미리보기 payload와 동일 키셋으로 정렬(`instructors`, `lectures`, `modules`, `schedules` 등)
 
 ---
 

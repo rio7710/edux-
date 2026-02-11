@@ -14,6 +14,18 @@ import {
   courseGetHandler,
   courseListSchema,
   courseListHandler,
+  courseShareInviteSchema,
+  courseShareInviteHandler,
+  courseShareListReceivedSchema,
+  courseShareListReceivedHandler,
+  courseShareListForCourseSchema,
+  courseShareListForCourseHandler,
+  courseShareRevokeSchema,
+  courseShareRevokeHandler,
+  courseShareTargetsSchema,
+  courseShareTargetsHandler,
+  courseShareRespondSchema,
+  courseShareRespondHandler,
 } from './tools/course.js';
 import {
   instructorUpsertSchema,
@@ -84,6 +96,8 @@ import {
   userRefreshTokenHandler,
   userIssueTestTokenSchema,
   userIssueTestTokenHandler,
+  userImpersonateSchema,
+  userImpersonateHandler,
   userMeSchema,
   userMeHandler,
   userGetSchema,
@@ -152,6 +166,12 @@ function createMcpServer(): McpServer {
   server.tool('course.upsert', '코스 생성 또는 수정', courseUpsertSchema, async (args) => courseUpsertHandler(args));
   server.tool('course.get', '코스 단건 조회 (모듈, 스케줄 포함)', courseGetSchema, async (args) => courseGetHandler(args));
   server.tool('course.list', '코스 목록 조회', courseListSchema, async (args) => courseListHandler(args));
+  server.tool('course.shareInvite', '코스 공유 초대 생성', courseShareInviteSchema, async (args) => courseShareInviteHandler(args));
+  server.tool('course.shareRespond', '코스 공유 수락/거절', courseShareRespondSchema, async (args) => courseShareRespondHandler(args));
+  server.tool('course.shareListReceived', '내 코스 공유 요청 목록 조회', courseShareListReceivedSchema, async (args) => courseShareListReceivedHandler(args));
+  server.tool('course.shareListForCourse', '코스별 공유 대상 목록 조회', courseShareListForCourseSchema, async (args) => courseShareListForCourseHandler(args));
+  server.tool('course.shareRevoke', '코스 공유 해제', courseShareRevokeSchema, async (args) => courseShareRevokeHandler(args));
+  server.tool('course.shareTargets', '코스 공유 대상 사용자 목록 조회', courseShareTargetsSchema, async (args) => courseShareTargetsHandler(args));
   server.tool('instructor.upsert', '강사 생성 또는 수정', instructorUpsertSchema, async (args) => instructorUpsertHandler(args));
   server.tool('instructor.get', '강사 단건 조회', instructorGetSchema, async (args) => instructorGetHandler(args));
   server.tool('instructor.getByUser', '내 강사 정보 조회', instructorGetByUserSchema, async (args) => instructorGetByUserHandler(args));
@@ -181,6 +201,7 @@ function createMcpServer(): McpServer {
   server.tool('user.login', '로그인 (토큰 발급)', userLoginSchema, async (args) => userLoginHandler(args));
   server.tool('user.refreshToken', '세션 연장 (리프레시 토큰)', userRefreshTokenSchema, async (args) => userRefreshTokenHandler(args));
   server.tool('user.issueTestToken', '관리자용 테스트 토큰 발급', userIssueTestTokenSchema, async (args) => userIssueTestTokenHandler(args));
+  server.tool('user.impersonate', '관리자용 가장 로그인 (개발 전용)', userImpersonateSchema, async (args) => userImpersonateHandler(args));
   server.tool('user.me', '내 정보 조회', userMeSchema, async (args) => userMeHandler(args));
   server.tool('user.get', '사용자 정보 조회 (관리자)', userGetSchema, async (args) => userGetHandler(args));
   server.tool('user.update', '내 정보 수정', userUpdateSchema, async (args) => userUpdateHandler(args));

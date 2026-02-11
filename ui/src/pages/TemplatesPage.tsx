@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Button,
   Table,
@@ -88,7 +88,6 @@ export default function TemplatesPage({
   defaultCss: initialCss = defaultCss,
 }: TemplatesPageProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [previewHtml, setPreviewHtml] = useState('');
   const [tabPreviewHtml, setTabPreviewHtml] = useState('');
   const [previewTargetOpen, setPreviewTargetOpen] = useState(false);
   const [previewTargetId, setPreviewTargetId] = useState<string | undefined>();
@@ -109,6 +108,7 @@ export default function TemplatesPage({
   const [instructors, setInstructors] = useState<{ id: string; name: string }[]>(
     [],
   );
+  const draftPromptOpenRef = useRef(false);
 
   const draftKey = useMemo(() => {
     if (templateType) return `draft:template:${templateType}`;
@@ -168,7 +168,7 @@ export default function TemplatesPage({
   const saveMutation = useMutation({
     mutationFn: (data: { id?: string; name: string; type: string; html: string; css: string }) =>
       api.templateUpsert({ ...data, token: accessToken || undefined }),
-    onSuccess: (result: unknown) => {
+    onSuccess: () => {
       message.success(editingTemplateId ? '템플릿이 수정되었습니다' : '템플릿이 저장되었습니다');
       setIsModalOpen(false);
       setEditingTemplateId(null);
@@ -215,7 +215,6 @@ export default function TemplatesPage({
       api.templatePreviewHtml(html, css, data),
     onSuccess: (result: unknown) => {
       const html = extractHtml(result);
-      setPreviewHtml(html);
       const win = window.open('', '_blank', 'width=900,height=1200');
       if (win) {
         win.document.open();
@@ -272,7 +271,6 @@ export default function TemplatesPage({
     form.setFieldsValue(draft);
     setEditingTemplateId(draft.id || null);
     setIsModalOpen(true);
-    setPreviewHtml('');
     setTabPreviewHtml('');
   }, [location.search, templateType]);
 
@@ -289,12 +287,12 @@ export default function TemplatesPage({
 
       if (currentType === 'course_intro') {
         // DB에서 [샘플] 과정 조회
-        const listResult = await api.courseList(50, 0) as any;
+        const listResult = await api.courseList(50, 0, accessToken || undefined) as any;
         const sampleCourse = (listResult.courses || []).find(
           (c: any) => c.title?.startsWith(SAMPLE_COURSE_PREFIX)
         );
         if (sampleCourse) {
-          const course = await api.courseGet(sampleCourse.id) as any;
+          const course = await api.courseGet(sampleCourse.id, accessToken || undefined) as any;
           data = {
             course,
             instructors: course.Instructors || [],
@@ -336,30 +334,44 @@ export default function TemplatesPage({
     setEditingTemplateId(null);
     const draft = loadDraft();
     if (draft) {
+      if (draftPromptOpenRef.current) return;
+      draftPromptOpenRef.current = true;
       Modal.confirm({
-        title: '임시 저장된 내용이 있습니다',
-        content: '불러와서 이어서 작성할까요?',
-        okText: '불러오기',
-        cancelText: '삭제',
+        title: '임시 저장된 정보가 있습니다',
+        content: '이어서 작성하시겠습니까?',
+        okText: '이어서 작성',
+        cancelText: '아니오',
+        maskClosable: false,
+        closable: false,
         onOk: () => {
           form.setFieldsValue(draft);
           setEditingTemplateId(draft.id || null);
-          setPreviewHtml('');
           setTabPreviewHtml('');
           setIsModalOpen(true);
+          draftPromptOpenRef.current = false;
         },
         onCancel: () => {
-          clearDraft();
-          setEditingTemplateId(null);
-          form.setFieldsValue({
-            name: '',
-            type: templateType || 'course_intro',
-            html: initialHtml,
-            css: initialCss,
+          Modal.confirm({
+            title: '이전 작업 초기화',
+            content: '이전 임시 저장 작업을 삭제하고 새로 시작합니다.',
+            okText: '확인',
+            cancelButtonProps: { style: { display: 'none' } },
+            maskClosable: false,
+            closable: false,
+            onOk: () => {
+              clearDraft();
+              setEditingTemplateId(null);
+              form.setFieldsValue({
+                name: '',
+                type: templateType || 'course_intro',
+                html: initialHtml,
+                css: initialCss,
+              });
+              setTabPreviewHtml('');
+              setIsModalOpen(true);
+              draftPromptOpenRef.current = false;
+            },
           });
-          setPreviewHtml('');
-          setTabPreviewHtml('');
-          setIsModalOpen(true);
         },
       });
       return;
@@ -370,7 +382,6 @@ export default function TemplatesPage({
       html: initialHtml,
       css: initialCss,
     });
-    setPreviewHtml('');
     setTabPreviewHtml('');
     setIsModalOpen(true);
   };
@@ -404,7 +415,7 @@ export default function TemplatesPage({
 
     if (currentType === 'course_intro') {
       if (courses.length === 0) {
-        api.courseList(50, 0).then((result) => {
+        api.courseList(50, 0, accessToken || undefined).then((result) => {
           const data = result as { courses: { id: string; title: string }[] };
           setCourses(data.courses || []);
         }).catch((error: Error) => {
@@ -480,7 +491,7 @@ export default function TemplatesPage({
 
     if (currentType === 'course_intro') {
       try {
-        const course = (await api.courseGet(previewTargetId)) as any;
+        const course = (await api.courseGet(previewTargetId, accessToken || undefined)) as any;
         const data = {
           course,
           instructors: course.Instructors || [],
@@ -587,7 +598,6 @@ export default function TemplatesPage({
             onClick={() => {
               form.setFieldsValue(record);
               setEditingTemplateId(record.id);
-              setPreviewHtml('');
               setTabPreviewHtml('');
               setIsModalOpen(true);
             }}

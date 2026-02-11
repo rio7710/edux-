@@ -61,14 +61,14 @@ const buildSeries = (items: Array<{ createdAt?: string }>) => {
 
 export default function DashboardPage() {
   const navigate = useNavigate();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, accessToken } = useAuth();
   const [courses, setCourses] = useState<Course[]>([]);
   const [instructors, setInstructors] = useState<Instructor[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
 
   useEffect(() => {
     mcpClient.onConnect(() => {
-      api.courseList(50, 0).then((result) => {
+      api.courseList(50, 0, accessToken || undefined).then((result) => {
         const data = result as { courses: Course[] };
         setCourses(data.courses || []);
       });
@@ -81,7 +81,7 @@ export default function DashboardPage() {
         setTemplates(data.items || []);
       });
     });
-  }, []);
+  }, [accessToken]);
 
   const courseCounts = useMemo(
     () => countByPeriod(courses, (c) => toDate(c.createdAt)),

@@ -37,6 +37,8 @@ model User {
   deletedAt         DateTime? // soft delete
   instructorProfile InstructorProfile?
   instructor        Instructor?        @relation("UserInstructor")
+  CourseSharesReceived CourseShare[]   @relation("CourseShareSharedWith")
+  CourseSharesSent   CourseShare[]     @relation("CourseShareSharedBy")
   RenderJobs        RenderJob[]
   UserDocuments     UserDocument[]
 }
@@ -107,6 +109,32 @@ model Course {
   Lectures      Lecture[]
   Schedules     CourseSchedule[]
   CourseInstructors CourseInstructor[]
+  CourseShares  CourseShare[]
+}
+
+enum CourseShareStatus {
+  pending
+  accepted
+  rejected
+}
+
+model CourseShare {
+  id               String            @id @default(cuid())
+  courseId         String
+  sharedWithUserId String
+  sharedByUserId   String
+  status           CourseShareStatus @default(pending)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  respondedAt      DateTime?
+
+  Course     Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  SharedWith User   @relation("CourseShareSharedWith", fields: [sharedWithUserId], references: [id], onDelete: Cascade)
+  SharedBy   User   @relation("CourseShareSharedBy", fields: [sharedByUserId], references: [id], onDelete: Cascade)
+
+  @@unique([courseId, sharedWithUserId])
+  @@index([sharedWithUserId, status])
+  @@index([sharedByUserId])
 }
 
 model CourseInstructor {

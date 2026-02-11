@@ -28,10 +28,15 @@ class McpClient {
   private onConnectCallbacks: Array<() => void> = [];
   private baseUrl: string;
   private connecting: Promise<void> | null = null;
+  private reconnectTimer: number | null = null;
+  private endpointHandler: ((event: MessageEvent) => void) | null = null;
+  private messageHandler: ((event: MessageEvent) => void) | null = null;
+  private activeBaseUrl: string;
 
   constructor() {
     const envBase = import.meta.env.VITE_MCP_BASE_URL as string | undefined;
     this.baseUrl = envBase ?? (import.meta.env.DEV ? "http://localhost:7777" : "");
+    this.activeBaseUrl = this.baseUrl;
   }
 
   async connect(): Promise<void> {
@@ -46,6 +51,7 @@ class McpClient {
         }, 8000);
 
         const url = baseUrl ? `${baseUrl}/sse` : "/sse";
+        this.activeBaseUrl = baseUrl;
         this.eventSource = new EventSource(url);
 
         this.eventSource.onopen = () => {
@@ -53,7 +59,7 @@ class McpClient {
         };
 
         // Handle endpoint event (MCP SDK sends this as a named event)
-        this.eventSource.addEventListener("endpoint", (event: MessageEvent) => {
+        this.endpointHandler = (event: MessageEvent) => {
           const endpointUrl = event.data;
           console.log("[MCP] Received endpoint:", endpointUrl);
           const endpoint = new URL(endpointUrl, window.location.origin);
@@ -63,10 +69,11 @@ class McpClient {
           this.onConnectCallbacks.forEach((cb) => cb());
           window.clearTimeout(timeout);
           resolve();
-        });
+        };
+        this.eventSource.addEventListener("endpoint", this.endpointHandler as EventListener);
 
         // Handle message events (responses from MCP server)
-        this.eventSource.addEventListener("message", (event: MessageEvent) => {
+        this.messageHandler = (event: MessageEvent) => {
           try {
             const data = JSON.parse(event.data);
 
@@ -93,14 +100,23 @@ class McpClient {
             });
             this.pendingRequests.clear();
           }
-        });
+        };
+        this.eventSource.addEventListener("message", this.messageHandler as EventListener);
 
         this.eventSource.onerror = (error) => {
           console.error("[MCP] SSE error:", error);
+          // If initial connect has not completed yet, fail this attempt.
+          if (!this.connected) {
+            window.clearTimeout(timeout);
+            reject(error);
+            return;
+          }
+
+          // After a successful connection, SSE can drop on backend restart.
+          // Mark session invalid and schedule reconnect without failing callers.
           this.connected = false;
           this.sessionId = null;
-          window.clearTimeout(timeout);
-          reject(error);
+          this.scheduleReconnect();
         };
       });
 
@@ -108,9 +124,9 @@ class McpClient {
       try {
         await connectOnce(this.baseUrl);
       } catch (err) {
+        // Try the alternate route once (direct URL <-> Vite proxy path).
         const fallback = this.baseUrl ? "" : "http://localhost:7777";
-        this.baseUrl = fallback;
-        await connectOnce(this.baseUrl);
+        await connectOnce(fallback);
       } finally {
         this.connecting = null;
       }
@@ -120,12 +136,39 @@ class McpClient {
   }
 
   disconnect(): void {
+    if (this.reconnectTimer) {
+      window.clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+
     if (this.eventSource) {
+      if (this.endpointHandler) {
+        this.eventSource.removeEventListener("endpoint", this.endpointHandler as EventListener);
+      }
+      if (this.messageHandler) {
+        this.eventSource.removeEventListener("message", this.messageHandler as EventListener);
+      }
       this.eventSource.close();
       this.eventSource = null;
     }
+    this.endpointHandler = null;
+    this.messageHandler = null;
     this.connected = false;
     this.sessionId = null;
+  }
+
+  private scheduleReconnect(): void {
+    if (this.reconnectTimer) return;
+    this.reconnectTimer = window.setTimeout(async () => {
+      this.reconnectTimer = null;
+      if (this.connected || this.connecting) return;
+      try {
+        await this.connect();
+      } catch (err) {
+        console.error("[MCP] Reconnect failed:", err);
+        this.scheduleReconnect();
+      }
+    }, 1000);
   }
 
   onConnect(callback: () => void): void {
@@ -189,7 +232,7 @@ class McpClient {
       });
 
       console.log("[MCP] Tool request:", name, args);
-      fetch(`${this.baseUrl}/messages?sessionId=${this.sessionId}`, {
+      fetch(`${this.activeBaseUrl}/messages?sessionId=${this.sessionId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(request),
@@ -242,10 +285,31 @@ export const api = {
     token?: string;
   }) => mcpClient.callTool("course.upsert", data),
 
-  courseGet: (id: string) => mcpClient.callTool("course.get", { id }),
+  courseGet: (id: string, token?: string) =>
+    mcpClient.callTool("course.get", { id, token }),
 
-  courseList: (limit = 50, offset = 0) =>
-    mcpClient.callTool("course.list", { limit, offset }),
+  courseList: (limit = 50, offset = 0, token?: string) =>
+    mcpClient.callTool("course.list", { limit, offset, token }),
+
+  courseShareInvite: (data: { token: string; courseId: string; targetUserId: string }) =>
+    mcpClient.callTool("course.shareInvite", data),
+
+  courseShareRespond: (data: { token: string; courseId: string; accept: boolean }) =>
+    mcpClient.callTool("course.shareRespond", data),
+
+  courseShareListReceived: (data: {
+    token: string;
+    status?: "pending" | "accepted" | "rejected";
+  }) => mcpClient.callTool("course.shareListReceived", data),
+
+  courseShareListForCourse: (data: { token: string; courseId: string }) =>
+    mcpClient.callTool("course.shareListForCourse", data),
+
+  courseShareRevoke: (data: { token: string; courseId: string; targetUserId: string }) =>
+    mcpClient.callTool("course.shareRevoke", data),
+
+  courseShareTargets: (data: { token: string; query?: string; limit?: number }) =>
+    mcpClient.callTool("course.shareTargets", data),
 
   // Instructor
   instructorUpsert: (data: {
@@ -360,6 +424,11 @@ export const api = {
     password: string;
     name: string;
     isInstructorRequested?: boolean;
+    displayName?: string;
+    title?: string;
+    bio?: string;
+    phone?: string;
+    website?: string;
   }) => mcpClient.callTool("user.register", data),
 
   userLogin: (data: { email: string; password: string }) =>
@@ -371,6 +440,9 @@ export const api = {
   userIssueTestToken: (data: { token: string; minutes: number }) =>
     mcpClient.callTool("user.issueTestToken", data),
 
+  userImpersonate: (data: { token: string; targetUserId: string; reason?: string }) =>
+    mcpClient.callTool("user.impersonate", data),
+
   userMe: (token: string) => mcpClient.callTool("user.me", { token }),
 
   userGet: (token: string, userId: string) =>
@@ -379,6 +451,8 @@ export const api = {
   userUpdate: (data: {
     token: string;
     name?: string;
+    phone?: string | null;
+    website?: string | null;
     currentPassword?: string;
     newPassword?: string;
   }) => mcpClient.callTool("user.update", data),

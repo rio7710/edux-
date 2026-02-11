@@ -2,6 +2,8 @@ import { z } from "zod";
 import { verifyToken } from "../services/jwt.js";
 import { prisma } from "../services/prisma.js";
 
+const nullableString = z.string().nullable().optional();
+
 // createdBy ID를 사용자 이름으로 변환하는 헬퍼 함수
 async function resolveCreatorNames<T extends { createdBy?: string | null }>(
   items: T[],
@@ -28,16 +30,17 @@ async function resolveCreatorNames<T extends { createdBy?: string | null }>(
 // 스키마 정의
 export const scheduleUpsertSchema = {
   id: z.string().optional().describe("없으면 새로 생성"),
-  courseId: z.string().describe("코스 ID"),
-  instructorId: z.string().optional().describe("강사 ID"),
+  courseId: z.string().nullable().describe("코스 ID"),
+  instructorId: z.string().nullable().optional().describe("강사 ID"),
   date: z
     .string()
     .datetime()
+    .nullable()
     .optional()
     .describe("수업 날짜 및 시간 (ISO 8601 형식)"),
-  location: z.string().optional(),
-  audience: z.string().optional(),
-  remarks: z.string().optional(),
+  location: nullableString,
+  audience: nullableString,
+  remarks: nullableString,
   customFields: z.record(z.any()).optional(), // JSON type in Prisma
   token: z.string().optional().describe("인증 토큰 (등록자 추적용)"),
 };
@@ -60,40 +63,65 @@ export const scheduleListSchema = {
 // 핸들러 정의
 export async function scheduleUpsertHandler(args: {
   id?: string;
-  courseId: string;
-  instructorId?: string;
-  date?: string; // ISO 8601 string
-  location?: string;
-  audience?: string;
-  remarks?: string;
+  courseId: string | null;
+  instructorId?: string | null;
+  date?: string | null; // ISO 8601 string
+  location?: string | null;
+  audience?: string | null;
+  remarks?: string | null;
   customFields?: Record<string, any>;
   token?: string;
 }) {
   try {
+    if (!args.token) {
+      return {
+        content: [{ type: "text" as const, text: "인증이 필요합니다." }],
+        isError: true,
+      };
+    }
+    let actorUserId: string | undefined;
+    let actorRole: string | undefined;
+    try {
+      const payload = verifyToken(args.token);
+      actorUserId = payload.userId;
+      actorRole = payload.role;
+    } catch {
+      return {
+        content: [{ type: "text" as const, text: "인증 실패" }],
+        isError: true,
+      };
+    }
+
+    if (!args.courseId) {
+      return {
+        content: [{ type: "text" as const, text: "courseId is required" }],
+        isError: true,
+      };
+    }
+
     const scheduleId = args.id || `s_${Date.now()}`;
     const scheduleDate = args.date ? new Date(args.date) : undefined;
-
-    // 토큰에서 사용자 ID 추출
-    let createdBy: string | undefined;
-    if (args.token) {
-      try {
-        const payload = verifyToken(args.token);
-        createdBy = payload.userId;
-      } catch {
-        // 토큰 검증 실패시 무시
-      }
-    }
 
     // Validate courseId and instructorId existence
     const course = await prisma.course.findUnique({
       where: { id: args.courseId, deletedAt: null },
-      select: { id: true },
+      select: { id: true, createdBy: true },
     });
     if (!course) {
       return {
         content: [
           { type: "text" as const, text: `Course not found: ${args.courseId}` },
         ],
+        isError: true,
+      };
+    }
+    const canManage =
+      actorRole === "admin" ||
+      actorRole === "operator" ||
+      (course.createdBy && course.createdBy === actorUserId);
+    if (!canManage) {
+      return {
+        content: [{ type: "text" as const, text: "본인 코스만 수정할 수 있습니다." }],
         isError: true,
       };
     }
@@ -127,7 +155,7 @@ export async function scheduleUpsertHandler(args: {
         audience: args.audience,
         remarks: args.remarks,
         customFields: args.customFields,
-        createdBy,
+        createdBy: actorUserId,
       },
       update: {
         courseId: args.courseId,

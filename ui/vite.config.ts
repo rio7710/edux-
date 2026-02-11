@@ -7,6 +7,14 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
+      '/api': {
+        target: 'http://localhost:7777',
+        changeOrigin: true,
+      },
+      '/uploads': {
+        target: 'http://localhost:7777',
+        changeOrigin: true,
+      },
       '/sse': {
         target: 'http://localhost:7777',
         changeOrigin: true,
@@ -16,6 +24,10 @@ export default defineConfig({
         changeOrigin: true,
       },
       '/pdf': {
+        target: 'http://localhost:7777',
+        changeOrigin: true,
+      },
+      '/share': {
         target: 'http://localhost:7777',
         changeOrigin: true,
       },

@@ -67,6 +67,34 @@ export async function renderCoursePdfHandler(args: {
         isError: true,
       };
     }
+    const isAdminOperator =
+      payload.role === "admin" || payload.role === "operator";
+    if (!isAdminOperator) {
+      const visibleCourse = await prisma.course.findFirst({
+        where: {
+          id: args.courseId,
+          deletedAt: null,
+          OR: [
+            { createdBy: user.id },
+            {
+              CourseShares: {
+                some: {
+                  sharedWithUserId: user.id,
+                  status: "accepted",
+                },
+              },
+            },
+          ],
+        },
+        select: { id: true },
+      });
+      if (!visibleCourse) {
+        return {
+          content: [{ type: "text" as const, text: "코스 내보내기 권한이 없습니다." }],
+          isError: true,
+        };
+      }
+    }
 
     // 2. Create RenderJob record (status: pending)
     const renderJob = await prisma.renderJob.create({
