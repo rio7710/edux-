@@ -70,12 +70,13 @@ const pdfWorker = new Worker(
 
         const mergedInstructor = {
           ...(instructor || {}),
-          name: profile.displayName || profile.User?.name || instructor?.name,
-          title: profile.title ?? instructor?.title,
-          bio: profile.bio ?? instructor?.bio,
-          phone: profile.phone ?? instructor?.phone,
+          // Prefer instructor entity values; fall back to profile snapshot.
+          name: instructor?.name || profile.displayName || profile.User?.name,
+          title: instructor?.title ?? profile.title,
+          bio: instructor?.bio ?? profile.bio,
+          phone: profile.User?.phone ?? null,
           email: profile.User?.email ?? instructor?.email,
-          links: profile.links ?? instructor?.links,
+          links: instructor?.links ?? profile.links,
         };
 
         data.instructor = mergedInstructor;
@@ -116,20 +117,21 @@ const pdfWorker = new Worker(
 
       // 6. Create UserDocument (best-effort)
       try {
-        const resolvedUserId = userId || completedJob.userId;
-        if (resolvedUserId) {
-          await prisma.userDocument.create({
-            data: {
-              userId: resolvedUserId,
-              renderJobId: completedJob.id,
-              templateId: completedJob.templateId,
-              targetType: completedJob.targetType || targetType || 'unknown',
-              targetId: completedJob.targetId || targetId || '',
-              label: label || undefined,
-              pdfUrl,
-            },
-          });
+        const ownerUserId = completedJob.userId ?? userId;
+        if (!ownerUserId) {
+          throw new Error('RenderJob owner userId is missing');
         }
+        await prisma.userDocument.create({
+          data: {
+            userId: ownerUserId,
+            renderJobId: completedJob.id,
+            templateId: completedJob.templateId,
+            targetType: completedJob.targetType || targetType || 'unknown',
+            targetId: completedJob.targetId || targetId || '',
+            label: label || undefined,
+            pdfUrl,
+          },
+        });
       } catch (docError: any) {
         console.error(`[pdfWorker] Failed to create UserDocument: ${docError?.message || docError}`);
       }

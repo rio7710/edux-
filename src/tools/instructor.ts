@@ -2,6 +2,9 @@ import { z } from "zod";
 import { verifyToken } from "../services/jwt.js";
 import { prisma } from "../services/prisma.js";
 
+const nullableString = z.string().nullable().optional();
+const nullableStringArray = z.array(z.string()).nullable().optional();
+
 // createdBy ID를 사용자 이름으로 변환하는 헬퍼 함수
 async function resolveCreatorNames<T extends { createdBy?: string | null }>(
   items: T[],
@@ -30,42 +33,42 @@ export const instructorUpsertSchema = {
   id: z.string().optional().describe("없으면 새로 생성"),
   userId: z.string().optional().describe("연결할 사용자 ID"),
   name: z.string().describe("강사 이름"),
-  title: z.string().optional(),
-  email: z.string().email().optional().or(z.literal("")),
-  phone: z.string().optional(),
-  affiliation: z.string().optional(),
-  avatarUrl: z.string().optional().or(z.literal("")),
-  tagline: z.string().optional(),
-  bio: z.string().optional(),
-  specialties: z.array(z.string()).optional(),
+  title: nullableString,
+  email: z.string().email().nullable().optional().or(z.literal("")),
+  phone: nullableString,
+  affiliation: nullableString,
+  avatarUrl: z.string().nullable().optional().or(z.literal("")),
+  tagline: nullableString,
+  bio: nullableString,
+  specialties: nullableStringArray,
   certifications: z.array(z.object({
     name: z.string(),
-    issuer: z.string().optional(),
-    date: z.string().optional(),
-    fileUrl: z.string().optional(),
-  })).optional(),
-  awards: z.array(z.string()).optional(),
+    issuer: nullableString,
+    date: nullableString,
+    fileUrl: nullableString,
+  })).nullable().optional(),
+  awards: nullableStringArray,
   links: z.record(z.any()).optional(),
   degrees: z.array(z.object({
     name: z.string(),
     school: z.string(),
     major: z.string(),
     year: z.string(),
-    fileUrl: z.string().optional(),
-  })).optional(),
+    fileUrl: nullableString,
+  })).nullable().optional(),
   careers: z.array(z.object({
     company: z.string(),
     role: z.string(),
     period: z.string(),
-    description: z.string().optional(),
-  })).optional(),
+    description: nullableString,
+  })).nullable().optional(),
   publications: z.array(z.object({
     title: z.string(),
     type: z.string(),
-    year: z.string().optional(),
-    publisher: z.string().optional(),
-    url: z.string().optional(),
-  })).optional(),
+    year: nullableString,
+    publisher: nullableString,
+    url: nullableString,
+  })).nullable().optional(),
   token: z.string().optional().describe("인증 토큰 (등록자 추적용)"),
 };
 
@@ -93,20 +96,20 @@ export async function instructorUpsertHandler(args: {
   id?: string;
   userId?: string;
   name: string;
-  title?: string;
-  email?: string;
-  phone?: string;
-  affiliation?: string;
-  avatarUrl?: string;
-  tagline?: string;
-  bio?: string;
-  specialties?: string[];
-  certifications?: { name: string; issuer?: string; date?: string; fileUrl?: string }[];
-  awards?: string[];
+  title?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  affiliation?: string | null;
+  avatarUrl?: string | null;
+  tagline?: string | null;
+  bio?: string | null;
+  specialties?: string[] | null;
+  certifications?: { name: string; issuer?: string | null; date?: string | null; fileUrl?: string | null }[] | null;
+  awards?: string[] | null;
   links?: Record<string, any>;
-  degrees?: { name: string; school: string; major: string; year: string; fileUrl?: string }[];
-  careers?: { company: string; role: string; period: string; description?: string }[];
-  publications?: { title: string; type: string; year?: string; publisher?: string; url?: string }[];
+  degrees?: { name: string; school: string; major: string; year: string; fileUrl?: string | null }[] | null;
+  careers?: { company: string; role: string; period: string; description?: string | null }[] | null;
+  publications?: { title: string; type: string; year?: string | null; publisher?: string | null; url?: string | null }[] | null;
   token?: string;
 }) {
   try {
@@ -165,7 +168,6 @@ export async function instructorUpsertHandler(args: {
         name: args.name,
         title: args.title,
         email: args.email,
-        phone: args.phone,
         affiliation: args.affiliation,
         avatarUrl: args.avatarUrl,
         tagline: args.tagline,
@@ -184,7 +186,6 @@ export async function instructorUpsertHandler(args: {
         name: args.name,
         title: args.title,
         email: args.email,
-        phone: args.phone,
         affiliation: args.affiliation,
         avatarUrl: args.avatarUrl,
         tagline: args.tagline,
@@ -198,6 +199,12 @@ export async function instructorUpsertHandler(args: {
         publications: args.publications || undefined,
       },
     });
+    if (args.phone !== undefined) {
+      await prisma.user.update({
+        where: { id: resolvedUserId },
+        data: { phone: args.phone },
+      });
+    }
 
     return {
       content: [
@@ -235,11 +242,21 @@ export async function instructorListHandler(args: {
         orderBy: { createdAt: "desc" },
         take: limit,
         skip: offset,
+        include: {
+          User: {
+            select: { phone: true },
+          },
+        },
       }),
       prisma.instructor.count({ where: { deletedAt: null } }),
     ]);
 
-    const instructors = await resolveCreatorNames(rawInstructors);
+    const instructors = (await resolveCreatorNames(rawInstructors)).map(
+      (inst) => ({
+        ...inst,
+        phone: inst.User?.phone ?? null,
+      }),
+    );
 
     return {
       content: [
@@ -268,6 +285,9 @@ export async function instructorGetHandler(args: { id: string }) {
     const instructor = await prisma.instructor.findUnique({
       where: { id: args.id, deletedAt: null },
       include: {
+        User: {
+          select: { phone: true },
+        },
         Schedules: true, // Instructors can have many schedules
         CourseInstructors: {
           include: { Course: true },
@@ -307,6 +327,8 @@ export async function instructorGetHandler(args: { id: string }) {
     } else {
       (enrichedInstructor as any).Courses = [];
     }
+    (enrichedInstructor as any).phone =
+      (enrichedInstructor as any).User?.phone ?? null;
 
     return {
       content: [
@@ -340,6 +362,9 @@ export async function instructorGetByUserHandler(args: { token: string }) {
     const instructor = await prisma.instructor.findFirst({
       where: { userId, deletedAt: null },
       include: {
+        User: {
+          select: { phone: true },
+        },
         Schedules: true,
         CourseInstructors: {
           include: { Course: true },
@@ -378,6 +403,8 @@ export async function instructorGetByUserHandler(args: { token: string }) {
     } else {
       (enrichedInstructor as any).Courses = [];
     }
+    (enrichedInstructor as any).phone =
+      (enrichedInstructor as any).User?.phone ?? null;
 
     return {
       content: [

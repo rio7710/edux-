@@ -12,6 +12,7 @@ import { prisma } from "../services/prisma.js";
 
 const SALT_ROUNDS = 10;
 const PASSWORD_REGEX = /^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d@$!%*#?&]{8,}$/;
+const nullableString = z.string().nullable().optional();
 
 // ─────────────────────────────────────────────────────────────
 // 스키마 정의
@@ -22,6 +23,11 @@ export const userRegisterSchema = {
   password: z.string().min(8).describe("비밀번호 (8자 이상, 영문+숫자)"),
   name: z.string().min(1).describe("이름"),
   isInstructorRequested: z.boolean().optional().describe("강사 신청 여부"),
+  displayName: nullableString.describe("표시 이름"),
+  title: nullableString.describe("직함"),
+  bio: nullableString.describe("자기소개"),
+  phone: nullableString.describe("전화번호"),
+  website: nullableString.describe("웹사이트"),
 };
 
 export const userLoginSchema = {
@@ -40,7 +46,9 @@ export const userGetSchema = {
 
 export const userUpdateSchema = {
   token: z.string().describe("액세스 토큰"),
-  name: z.string().optional().describe("이름"),
+  name: nullableString.describe("이름"),
+  phone: nullableString.describe("전화번호"),
+  website: nullableString.describe("웹사이트"),
   currentPassword: z
     .string()
     .optional()
@@ -70,7 +78,7 @@ export const userUpdateRoleSchema = {
 export const userUpdateByAdminSchema = {
   token: z.string().describe("액세스 토큰 (관리자만)"),
   userId: z.string().describe("대상 사용자 ID"),
-  name: z.string().optional().describe("이름"),
+  name: nullableString.describe("이름"),
   role: z
     .enum(["admin", "operator", "editor", "instructor", "viewer", "guest"])
     .optional()
@@ -80,11 +88,11 @@ export const userUpdateByAdminSchema = {
 
 export const userRequestInstructorSchema = {
   token: z.string().describe("액세스 토큰"),
-  displayName: z.string().optional().describe("표시 이름"),
-  title: z.string().optional().describe("직함"),
-  bio: z.string().optional().describe("자기소개"),
-  phone: z.string().optional().describe("전화번호"),
-  website: z.string().optional().describe("웹사이트"),
+  displayName: nullableString.describe("표시 이름"),
+  title: nullableString.describe("직함"),
+  bio: nullableString.describe("자기소개"),
+  phone: nullableString.describe("전화번호"),
+  website: nullableString.describe("웹사이트"),
   links: z.any().optional().describe("추가 링크 (JSON)"),
 };
 
@@ -95,11 +103,11 @@ export const userApproveInstructorSchema = {
 
 export const userUpdateInstructorProfileSchema = {
   token: z.string().describe("액세스 토큰"),
-  displayName: z.string().optional().describe("표시 이름"),
-  title: z.string().optional().describe("직함"),
-  bio: z.string().optional().describe("자기소개"),
-  phone: z.string().optional().describe("전화번호"),
-  website: z.string().optional().describe("웹사이트"),
+  displayName: nullableString.describe("표시 이름"),
+  title: nullableString.describe("직함"),
+  bio: nullableString.describe("자기소개"),
+  phone: nullableString.describe("전화번호"),
+  website: nullableString.describe("웹사이트"),
   links: z.any().optional().describe("추가 링크 (JSON)"),
 };
 
@@ -115,6 +123,12 @@ export const userRefreshTokenSchema = {
 export const userIssueTestTokenSchema = {
   token: z.string().describe("액세스 토큰 (admin)"),
   minutes: z.number().int().min(1).max(120).describe("테스트 만료 시간(분)"),
+};
+
+export const userImpersonateSchema = {
+  token: z.string().describe("액세스 토큰 (admin)"),
+  targetUserId: z.string().describe("대상 사용자 ID"),
+  reason: z.string().optional().describe("전환 사유 (감사 로그용)"),
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -137,6 +151,8 @@ function sanitizeUser(user: {
   id: string;
   email: string;
   name: string;
+  phone: string | null;
+  website: string | null;
   role: string;
   isActive: boolean;
   createdAt: Date;
@@ -146,6 +162,8 @@ function sanitizeUser(user: {
     id: user.id,
     email: user.email,
     name: user.name,
+    phone: user.phone,
+    website: user.website,
     role: user.role,
     isActive: user.isActive,
     createdAt: user.createdAt,
@@ -162,6 +180,12 @@ export async function userRegisterHandler(args: {
   email: string;
   password: string;
   name: string;
+  isInstructorRequested?: boolean;
+  displayName?: string | null;
+  title?: string | null;
+  bio?: string | null;
+  phone?: string | null;
+  website?: string | null;
 }) {
   try {
     // 비밀번호 규칙 검사
@@ -198,6 +222,8 @@ export async function userRegisterHandler(args: {
       data: {
         email: args.email,
         name: args.name,
+        phone: args.phone || null,
+        website: args.website || null,
         hashedPassword,
         provider: "local",
         role: "viewer",
@@ -205,12 +231,14 @@ export async function userRegisterHandler(args: {
     });
 
     // If the user requested instructor signup, create a pending InstructorProfile
-    if ((args as any).isInstructorRequested) {
+    if (args.isInstructorRequested) {
       try {
         await prisma.instructorProfile.create({
           data: {
             userId: user.id,
-            displayName: args.name,
+            displayName: args.displayName || args.name,
+            title: args.title,
+            bio: args.bio,
             isPending: true,
             isApproved: false,
           },
@@ -410,6 +438,106 @@ export async function userIssueTestTokenHandler(args: {
   }
 }
 
+// 2-3. 관리자용 가장 로그인(개발 전용)
+export async function userImpersonateHandler(args: {
+  token: string;
+  targetUserId: string;
+  reason?: string;
+}) {
+  try {
+    const isProd = process.env.NODE_ENV === "production";
+    const allowInProd = process.env.ALLOW_IMPERSONATION_IN_PROD === "true";
+    if (isProd && !allowInProd) {
+      return {
+        content: [{ type: "text" as const, text: "운영 환경에서는 가장 로그인이 비활성화되어 있습니다." }],
+        isError: true,
+      };
+    }
+
+    const actorPayload = verifyToken(args.token) as JwtPayload;
+    if (actorPayload.role !== "admin") {
+      return {
+        content: [{ type: "text" as const, text: "관리자 권한이 필요합니다." }],
+        isError: true,
+      };
+    }
+
+    const actor = await prisma.user.findUnique({
+      where: { id: actorPayload.userId, isActive: true, deletedAt: null },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        phone: true,
+        website: true,
+        role: true,
+        isActive: true,
+        createdAt: true,
+        lastLoginAt: true,
+      },
+    });
+    if (!actor) {
+      return {
+        content: [{ type: "text" as const, text: "요청 관리자 계정을 찾을 수 없습니다." }],
+        isError: true,
+      };
+    }
+
+    const target = await prisma.user.findUnique({
+      where: { id: args.targetUserId, isActive: true, deletedAt: null },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        phone: true,
+        website: true,
+        role: true,
+        isActive: true,
+        createdAt: true,
+        lastLoginAt: true,
+      },
+    });
+    if (!target) {
+      return {
+        content: [{ type: "text" as const, text: "대상 사용자를 찾을 수 없습니다." }],
+        isError: true,
+      };
+    }
+
+    const payload: JwtPayload = {
+      userId: target.id,
+      email: target.email,
+      role: target.role,
+    };
+    const accessToken = signAccessToken(payload);
+    const refreshToken = signRefreshToken(payload);
+
+    console.warn(
+      `[SECURITY][IMPERSONATE] actor=${actor.id}(${actor.email}) target=${target.id}(${target.email}) reason=${args.reason || "-"} at=${new Date().toISOString()}`,
+    );
+
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: JSON.stringify({
+            user: sanitizeUser(target),
+            accessToken,
+            refreshToken,
+            actor: sanitizeUser(actor),
+          }),
+        },
+      ],
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    return {
+      content: [{ type: "text" as const, text: `가장 로그인 실패: ${message}` }],
+      isError: true,
+    };
+  }
+}
+
 // 3. 내 정보 조회
 export async function userMeHandler(args: { token: string }) {
   try {
@@ -492,7 +620,9 @@ export async function userGetHandler(args: {
 // 4. 정보 수정
 export async function userUpdateHandler(args: {
   token: string;
-  name?: string;
+  name?: string | null;
+  phone?: string | null;
+  website?: string | null;
   currentPassword?: string;
   newPassword?: string;
 }) {
@@ -508,11 +638,22 @@ export async function userUpdateHandler(args: {
       };
     }
 
-    const updateData: { name?: string; hashedPassword?: string } = {};
+    const updateData: {
+      name?: string;
+      phone?: string | null;
+      website?: string | null;
+      hashedPassword?: string;
+    } = {};
 
     // 이름 변경
     if (args.name) {
       updateData.name = args.name;
+    }
+    if (args.phone !== undefined) {
+      updateData.phone = args.phone;
+    }
+    if (args.website !== undefined) {
+      updateData.website = args.website;
     }
 
     // 비밀번호 변경
@@ -820,7 +961,7 @@ export async function userUpdateRoleHandler(args: {
 export async function userUpdateByAdminHandler(args: {
   token: string;
   userId: string;
-  name?: string;
+  name?: string | null;
   role?: "admin" | "operator" | "editor" | "instructor" | "viewer" | "guest";
   isActive?: boolean;
 }) {
@@ -925,15 +1066,15 @@ export async function userUpdateByAdminHandler(args: {
 // 8. 강사 신청 (사용자)
 export async function requestInstructorHandler(args: {
   token: string;
-  displayName?: string;
-  title?: string;
-  bio?: string;
-  phone?: string;
-  website?: string;
+  displayName?: string | null;
+  title?: string | null;
+  bio?: string | null;
+  phone?: string | null;
+  website?: string | null;
   links?: any;
 }) {
   try {
-    const { payload, user } = await verifyAndGetUser(args.token);
+    const { user } = await verifyAndGetUser(args.token);
     if (!user) {
       return {
         content: [
@@ -943,6 +1084,16 @@ export async function requestInstructorHandler(args: {
       };
     }
 
+    if (args.phone !== undefined || args.website !== undefined) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          phone: args.phone === undefined ? undefined : args.phone,
+          website: args.website === undefined ? undefined : args.website,
+        },
+      });
+    }
+
     // upsert profile
     const profile = await prisma.instructorProfile.upsert({
       where: { userId: user.id },
@@ -950,9 +1101,7 @@ export async function requestInstructorHandler(args: {
         displayName: args.displayName || user.name,
         title: args.title,
         bio: args.bio,
-        phone: args.phone,
-        website: args.website,
-        links: args.links ? args.links : undefined,
+        links: args.links === undefined ? undefined : args.links,
         isPending: true,
       },
       create: {
@@ -960,9 +1109,7 @@ export async function requestInstructorHandler(args: {
         displayName: args.displayName || user.name,
         title: args.title,
         bio: args.bio,
-        phone: args.phone,
-        website: args.website,
-        links: args.links ? args.links : undefined,
+        links: args.links === undefined ? undefined : args.links,
         isPending: true,
       },
     });
@@ -1037,10 +1184,9 @@ export async function approveInstructorHandler(args: {
       const updateData: any = {
         userId: args.userId,
         name:
-          profile.displayName || profile.User?.name || existingInstructor.name,
+          profile.User?.name || profile.displayName || existingInstructor.name,
         title: profile.title,
         email: profile.User?.email,
-        phone: profile.phone,
         tagline: profile.bio,
       };
       if (profile.links) {
@@ -1053,10 +1199,9 @@ export async function approveInstructorHandler(args: {
     } else {
       const createData: any = {
         userId: args.userId,
-        name: profile.displayName || profile.User?.name || "Unknown",
+        name: profile.User?.name || profile.displayName || "Unknown",
         title: profile.title,
         email: profile.User?.email,
-        phone: profile.phone,
         tagline: profile.bio,
         specialties: [],
         certifications: [],
@@ -1103,15 +1248,15 @@ export async function approveInstructorHandler(args: {
 // 10. 강사 프로파일 수정 (자기 자신)
 export async function updateInstructorProfileHandler(args: {
   token: string;
-  displayName?: string;
-  title?: string;
-  bio?: string;
-  phone?: string;
-  website?: string;
+  displayName?: string | null;
+  title?: string | null;
+  bio?: string | null;
+  phone?: string | null;
+  website?: string | null;
   links?: any;
 }) {
   try {
-    const { payload, user } = await verifyAndGetUser(args.token);
+    const { user } = await verifyAndGetUser(args.token);
     if (!user) {
       return {
         content: [
@@ -1121,24 +1266,30 @@ export async function updateInstructorProfileHandler(args: {
       };
     }
 
+    if (args.phone !== undefined || args.website !== undefined) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          phone: args.phone === undefined ? undefined : args.phone,
+          website: args.website === undefined ? undefined : args.website,
+        },
+      });
+    }
+
     const profile = await prisma.instructorProfile.upsert({
       where: { userId: user.id },
       update: {
         displayName: args.displayName,
         title: args.title,
         bio: args.bio,
-        phone: args.phone,
-        website: args.website,
-        links: args.links ? args.links : undefined,
+        links: args.links === undefined ? undefined : args.links,
       },
       create: {
         userId: user.id,
         displayName: args.displayName || user.name,
         title: args.title,
         bio: args.bio,
-        phone: args.phone,
-        website: args.website,
-        links: args.links ? args.links : undefined,
+        links: args.links === undefined ? undefined : args.links,
         isPending: true,
       },
     });
@@ -1171,11 +1322,25 @@ export async function getInstructorProfileHandler(args: { token: string }) {
 
     const profile = await prisma.instructorProfile.findUnique({
       where: { userId: user.id },
+      include: { User: true },
     });
+
+    if (!profile) {
+      return {
+        content: [{ type: "text" as const, text: "null" }],
+      };
+    }
+
+    const mergedProfile = {
+      ...profile,
+      displayName: profile.User?.name || profile.displayName,
+      phone: profile.User?.phone ?? null,
+      website: profile.User?.website ?? null,
+    };
 
     return {
       content: [
-        { type: "text" as const, text: JSON.stringify(profile) },
+        { type: "text" as const, text: JSON.stringify(mergedProfile) },
       ],
     };
   } catch (error) {
