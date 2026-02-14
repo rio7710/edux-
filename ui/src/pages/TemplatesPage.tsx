@@ -331,10 +331,10 @@ export default function TemplatesPage({
           return;
         }
       } else if (currentType === 'instructor_profile') {
-        const listResult = await api.instructorList(50, 0) as any;
+        const listResult = await api.instructorList(accessToken, 50, 0) as any;
         const first = (listResult.instructors || [])[0];
         if (first) {
-          const instructor = await api.instructorGet(first.id) as any;
+          const instructor = await api.instructorGet(first.id, accessToken) as any;
           data = {
             instructor,
             courses: instructor.Courses || [],
@@ -500,7 +500,7 @@ export default function TemplatesPage({
       }
 
       if (instructors.length === 0) {
-        api.instructorList(50, 0).then((result) => {
+        api.instructorList(accessToken, 50, 0).then((result) => {
           const data = result as { instructors: { id: string; name: string }[] };
           setInstructors(data.instructors || []);
         }).catch((error: Error) => {
@@ -563,7 +563,7 @@ export default function TemplatesPage({
 
     if (currentType === 'instructor_profile') {
       try {
-        const instructor = (await api.instructorGet(previewTargetId)) as any;
+        const instructor = (await api.instructorGet(previewTargetId, accessToken)) as any;
         const data = {
           instructor,
           courses: instructor.Courses || [],

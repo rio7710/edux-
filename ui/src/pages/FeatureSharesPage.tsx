@@ -143,6 +143,8 @@ export default function FeatureSharesPage() {
   const [sendBody, setSendBody] = useState('');
   const [sendLoading, setSendLoading] = useState(false);
   const [sendModalOpen, setSendModalOpen] = useState(false);
+  const [activeTabKey, setActiveTabKey] = useState('messages-new');
+  const [shareDataLoaded, setShareDataLoaded] = useState(false);
 
   const applyLocalReadUpdate = (updater: (row: UserMessageRow) => boolean) => {
     const readAt = new Date().toISOString();
@@ -159,11 +161,29 @@ export default function FeatureSharesPage() {
     );
   };
 
-  const loadData = async () => {
+  const loadMessages = async () => {
+    if (!accessToken) return;
+    try {
+      const messages = (await api.messageList({ token: accessToken, limit: 200 })) as {
+        messages: UserMessageRow[];
+      };
+      setUserMessages(messages.messages || []);
+    } catch (error) {
+      const err = error as Error;
+      if (isAuthError(err.message)) {
+        message.error('세션이 만료되었습니다. 다시 로그인해주세요.');
+        logout();
+        return;
+      }
+      message.error(`메시지 목록 조회 실패: ${err.message}`);
+    }
+  };
+
+  const loadShareData = async () => {
     if (!accessToken) return;
     try {
       setLoading(true);
-      const [pending, accepted, rejected, grants, messages] = await Promise.all([
+      const [pending, accepted, rejected, grants] = await Promise.all([
         api.courseShareListReceived({ token: accessToken, status: 'pending' }) as Promise<{
           shares: CourseShareRow[];
         }>,
@@ -174,16 +194,13 @@ export default function FeatureSharesPage() {
           shares: CourseShareRow[];
         }>,
         api.lectureGrantListMine({ token: accessToken }) as Promise<{ grants: LectureGrantRow[] }>,
-        api.messageList({ token: accessToken, limit: 200 }) as Promise<{
-          messages: UserMessageRow[];
-        }>,
       ]);
 
       setPendingShares(pending.shares || []);
       setAcceptedShares(accepted.shares || []);
       setRejectedShares(rejected.shares || []);
       setLectureGrants(grants.grants || []);
-      setUserMessages(messages.messages || []);
+      setShareDataLoaded(true);
     } catch (error) {
       const err = error as Error;
       if (isAuthError(err.message)) {
@@ -196,11 +213,6 @@ export default function FeatureSharesPage() {
       setLoading(false);
     }
   };
-
-  useEffect(() => {
-    loadData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accessToken]);
 
   const loadRecipients = async () => {
     if (!accessToken) return;
@@ -216,9 +228,29 @@ export default function FeatureSharesPage() {
   };
 
   useEffect(() => {
-    loadRecipients();
+    setShareDataLoaded(false);
+    setPendingShares([]);
+    setAcceptedShares([]);
+    setRejectedShares([]);
+    setLectureGrants([]);
+    setMessageRecipients([]);
+    void loadMessages();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accessToken]);
+
+  useEffect(() => {
+    if (activeTabKey === 'messages-new' || activeTabKey === 'messages-read') return;
+    if (shareDataLoaded) return;
+    void loadShareData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTabKey, shareDataLoaded, accessToken]);
+
+  useEffect(() => {
+    if (!sendModalOpen) return;
+    if (messageRecipients.length > 0) return;
+    void loadRecipients();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sendModalOpen, accessToken, messageRecipients.length]);
 
   const handleRespondCourse = async (courseId: string, accept: boolean) => {
     if (!accessToken) return;
@@ -227,7 +259,7 @@ export default function FeatureSharesPage() {
     try {
       await api.courseShareRespond({ token: accessToken, courseId, accept });
       message.success(accept ? '코스 공유를 수락했습니다.' : '코스 공유를 거절했습니다.');
-      await loadData();
+      await loadShareData();
     } catch (error) {
       message.error(`코스 공유 응답 실패: ${(error as Error).message}`);
     } finally {
@@ -242,7 +274,7 @@ export default function FeatureSharesPage() {
     try {
       await api.courseShareLeave({ token: accessToken, courseId });
       message.success('코스 공유를 해제했습니다.');
-      await loadData();
+      await loadShareData();
     } catch (error) {
       message.error(`코스 공유 해제 실패: ${(error as Error).message}`);
     } finally {
@@ -257,7 +289,7 @@ export default function FeatureSharesPage() {
     try {
       await api.lectureGrantLeave({ token: accessToken, lectureId });
       message.success('강의 공유를 해제했습니다.');
-      await loadData();
+      await loadShareData();
     } catch (error) {
       message.error(`강의 공유 해제 실패: ${(error as Error).message}`);
     } finally {
@@ -334,7 +366,7 @@ export default function FeatureSharesPage() {
     try {
       await api.messageSeedDummy({ token: accessToken, count: 6 });
       message.success('더미 메시지 6개를 생성했습니다.');
-      await loadData();
+      await loadMessages();
     } catch (error) {
       message.error(`더미 메시지 생성 실패: ${(error as Error).message}`);
     } finally {
@@ -381,7 +413,7 @@ export default function FeatureSharesPage() {
       setSendTitle('');
       setSendBody('');
       setSendModalOpen(false);
-      await loadData();
+      await loadMessages();
     } catch (error) {
       message.error(`메시지 전송 실패: ${(error as Error).message}`);
     } finally {
@@ -526,7 +558,7 @@ export default function FeatureSharesPage() {
       return <Empty description={emptyText} />;
     }
     return (
-      <Space direction="vertical" style={{ width: '100%' }} size={10}>
+      <Space orientation="vertical" style={{ width: '100%' }} size={10}>
         {items.map((item) => (
           <Card key={item.id} size="small">
             <Space
@@ -709,11 +741,11 @@ export default function FeatureSharesPage() {
   );
 
   if (!accessToken) {
-    return <Alert type="warning" message="로그인 후 이용할 수 있습니다." showIcon />;
+    return <Alert type="warning" title="로그인 후 이용할 수 있습니다." showIcon />;
   }
 
   return (
-    <Space direction="vertical" style={{ width: '100%' }} size={16}>
+    <Space orientation="vertical" style={{ width: '100%' }} size={16}>
       <Typography.Title level={3} style={{ margin: 0 }}>
         메시지함
       </Typography.Title>
@@ -721,7 +753,7 @@ export default function FeatureSharesPage() {
       <Alert
         type="info"
         showIcon
-        message="MCP 메시지함 + 공유 이력을 한 곳에서 확인합니다."
+        title="MCP 메시지함 + 공유 이력을 한 곳에서 확인합니다."
         description="메시지함은 message.* MCP 툴 기반이며, 코스/강의 공유 액션과 강사 승인 알림이 자동 적재됩니다."
       />
 
@@ -735,13 +767,14 @@ export default function FeatureSharesPage() {
         <Tabs
           type="card"
           size="small"
-          defaultActiveKey="messages-new"
+          activeKey={activeTabKey}
+          onChange={(key) => setActiveTabKey(key)}
           items={[
             {
               key: 'messages-new',
               label: `신규 메시지 (${unreadMessageCount})`,
               children: (
-                <Space direction="vertical" style={{ width: '100%' }} size={12}>
+                <Space orientation="vertical" style={{ width: '100%' }} size={12}>
                   <Space style={{ width: '100%', justifyContent: 'space-between' }} wrap>
                     <Space wrap>
                       <Input.Search
@@ -789,7 +822,7 @@ export default function FeatureSharesPage() {
               key: 'messages-read',
               label: `읽은 메시지 (${readMessageItems.length})`,
               children: (
-                <Space direction="vertical" style={{ width: '100%' }} size={12}>
+                <Space orientation="vertical" style={{ width: '100%' }} size={12}>
                   <Space style={{ width: '100%', justifyContent: 'space-between' }} wrap>
                     <Space wrap>
                       <Input.Search
@@ -894,7 +927,7 @@ export default function FeatureSharesPage() {
         cancelText="취소"
         confirmLoading={sendLoading}
       >
-        <Space direction="vertical" style={{ width: '100%' }} size={10}>
+        <Space orientation="vertical" style={{ width: '100%' }} size={10}>
           <Space style={{ width: '100%', justifyContent: 'space-between' }} wrap>
             <Checkbox
               checked={sendToAllRecipients}
@@ -952,7 +985,7 @@ export default function FeatureSharesPage() {
               }}
               disabled={sendToAllRecipients}
             >
-              <Space direction="vertical" style={{ width: '100%' }}>
+              <Space orientation="vertical" style={{ width: '100%' }}>
                 {messageRecipients.map((item) => (
                   <Checkbox key={item.id} value={item.id}>
                     {item.name} ({item.email})

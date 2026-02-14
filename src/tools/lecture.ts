@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import { requirePermission } from "../services/authorization.js";
 import { verifyToken } from "../services/jwt.js";
 import { createUserMessage } from "../services/message.js";
 import { prisma } from "../services/prisma.js";
+import { errorResult } from "../services/toolResponse.js";
 
 // createdBy ID를 사용자 이름으로 변환하는 헬퍼 함수
 async function resolveCreatorNames<T extends { createdBy?: string | null }>(
@@ -138,6 +140,11 @@ export async function lectureUpsertHandler(args: {
         isError: true,
       };
     }
+    await requirePermission(
+      args.token,
+      "lecture.upsert",
+      "강의 생성/수정 권한이 없습니다.",
+    );
     let actorUserId: string | undefined;
     let actorRole: string | undefined;
     try {
@@ -328,18 +335,13 @@ export async function lectureUpsertHandler(args: {
       ],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return {
-      content: [
-        { type: "text" as const, text: `Failed to upsert lecture: ${message}` },
-      ],
-      isError: true,
-    };
+    return errorResult("강의 저장 실패", error);
   }
 }
 
 export async function lectureGetHandler(args: { id: string; token: string }) {
   try {
+    await requirePermission(args.token, "lecture.get", "강의 조회 권한이 없습니다.");
     try {
       verifyToken(args.token);
     } catch {
@@ -375,13 +377,7 @@ export async function lectureGetHandler(args: { id: string; token: string }) {
       ],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return {
-      content: [
-        { type: "text" as const, text: `Failed to get lecture: ${message}` },
-      ],
-      isError: true,
-    };
+    return errorResult("강의 조회 실패", error);
   }
 }
 
@@ -392,6 +388,7 @@ export async function lectureMapHandler(args: {
   token: string;
 }) {
   try {
+    await requirePermission(args.token, "lecture.upsert", "강의 매핑 권한이 없습니다.");
     const payload = verifyToken(args.token);
     const actorUserId = payload.userId;
     const actorRole = payload.role;
@@ -489,13 +486,7 @@ export async function lectureMapHandler(args: {
       ],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return {
-      content: [
-        { type: "text" as const, text: `Failed to map lecture: ${message}` },
-      ],
-      isError: true,
-    };
+    return errorResult("강의 매핑 실패", error);
   }
 }
 
@@ -506,6 +497,7 @@ export async function lectureListHandler(args: {
   token: string;
 }) {
   try {
+    await requirePermission(args.token, "lecture.list", "강의 목록 조회 권한이 없습니다.");
     try {
       verifyToken(args.token);
     } catch {
@@ -546,13 +538,7 @@ export async function lectureListHandler(args: {
       ],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return {
-      content: [
-        { type: "text" as const, text: `Failed to list lectures: ${message}` },
-      ],
-      isError: true,
-    };
+    return errorResult("강의 목록 조회 실패", error);
   }
 }
 
@@ -567,6 +553,7 @@ export async function lectureDeleteHandler(args: {
         isError: true,
       };
     }
+    await requirePermission(args.token, "lecture.delete", "강의 삭제 권한이 없습니다.");
     let actorUserId: string | undefined;
     let actorRole: string | undefined;
     try {
@@ -638,13 +625,7 @@ export async function lectureDeleteHandler(args: {
       ],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return {
-      content: [
-        { type: "text" as const, text: `Failed to delete lecture: ${message}` },
-      ],
-      isError: true,
-    };
+    return errorResult("강의 삭제 실패", error);
   }
 }
 
@@ -653,6 +634,11 @@ export async function lectureGrantListHandler(args: {
   token: string;
 }) {
   try {
+    await requirePermission(
+      args.token,
+      "lecture.grant.list",
+      "강의 공유 권한 목록 조회 권한이 없습니다.",
+    );
     const payload = verifyToken(args.token);
     const context = await getLectureAccessContext(
       args.lectureId,
@@ -687,13 +673,7 @@ export async function lectureGrantListHandler(args: {
       content: [{ type: "text" as const, text: JSON.stringify({ grants }) }],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return {
-      content: [
-        { type: "text" as const, text: `Failed to list lecture grants: ${message}` },
-      ],
-      isError: true,
-    };
+    return errorResult("강의 공유 권한 목록 조회 실패", error);
   }
 }
 
@@ -706,6 +686,11 @@ export async function lectureGrantUpsertHandler(args: {
   token: string;
 }) {
   try {
+    await requirePermission(
+      args.token,
+      "lecture.grant.upsert",
+      "강의 공유 권한 변경 권한이 없습니다.",
+    );
     const payload = verifyToken(args.token);
     const context = await getLectureAccessContext(
       args.lectureId,
@@ -816,13 +801,7 @@ export async function lectureGrantUpsertHandler(args: {
       content: [{ type: "text" as const, text: JSON.stringify(grant) }],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return {
-      content: [
-        { type: "text" as const, text: `Failed to upsert lecture grant: ${message}` },
-      ],
-      isError: true,
-    };
+    return errorResult("강의 공유 권한 저장 실패", error);
   }
 }
 
@@ -832,6 +811,11 @@ export async function lectureGrantDeleteHandler(args: {
   token: string;
 }) {
   try {
+    await requirePermission(
+      args.token,
+      "lecture.grant.delete",
+      "강의 공유 권한 해제 권한이 없습니다.",
+    );
     const payload = verifyToken(args.token);
     const context = await getLectureAccessContext(
       args.lectureId,
@@ -877,18 +861,17 @@ export async function lectureGrantDeleteHandler(args: {
       content: [{ type: "text" as const, text: JSON.stringify({ ok: true, revokedCount: revoked.count }) }],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return {
-      content: [
-        { type: "text" as const, text: `Failed to delete lecture grant: ${message}` },
-      ],
-      isError: true,
-    };
+    return errorResult("강의 공유 권한 해제 실패", error);
   }
 }
 
 export async function lectureGrantListMineHandler(args: { token: string }) {
   try {
+    await requirePermission(
+      args.token,
+      "lecture.grant.listMine",
+      "내 강의 공유 권한 조회 권한이 없습니다.",
+    );
     const payload = verifyToken(args.token);
     const grants = await prisma.lectureGrant.findMany({
       where: {
@@ -926,13 +909,7 @@ export async function lectureGrantListMineHandler(args: { token: string }) {
       content: [{ type: "text" as const, text: JSON.stringify({ grants: normalized }) }],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return {
-      content: [
-        { type: "text" as const, text: `Failed to list my lecture grants: ${message}` },
-      ],
-      isError: true,
-    };
+    return errorResult("내 강의 공유 권한 조회 실패", error);
   }
 }
 
@@ -941,6 +918,11 @@ export async function lectureGrantLeaveHandler(args: {
   token: string;
 }) {
   try {
+    await requirePermission(
+      args.token,
+      "lecture.grant.leave",
+      "내 강의 공유 해제 권한이 없습니다.",
+    );
     const payload = verifyToken(args.token);
     const [actor, lecture, activeGrants] = await Promise.all([
       prisma.user.findUnique({
@@ -1006,12 +988,6 @@ export async function lectureGrantLeaveHandler(args: {
       ],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return {
-      content: [
-        { type: "text" as const, text: `Failed to leave lecture grant: ${message}` },
-      ],
-      isError: true,
-    };
+    return errorResult("내 강의 공유 해제 실패", error);
   }
 }

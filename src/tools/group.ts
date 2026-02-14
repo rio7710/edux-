@@ -2,6 +2,7 @@ import type { Role } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../services/prisma.js";
 import { evaluatePermission, requirePermission } from "../services/authorization.js";
+import { textResult, errorResult } from "../services/toolResponse.js";
 
 const memberRoleSchema = z.enum(["owner", "manager", "member"]);
 const permissionEffectSchema = z.enum(["allow", "deny"]);
@@ -14,20 +15,6 @@ const roleSchema = z.enum([
   "viewer",
   "guest",
 ]);
-
-function textResult(payload: unknown) {
-  return {
-    content: [{ type: "text" as const, text: JSON.stringify(payload) }],
-  };
-}
-
-function errorResult(prefix: string, error: unknown) {
-  const message = error instanceof Error ? error.message : "Unknown error";
-  return {
-    content: [{ type: "text" as const, text: `${prefix}: ${message}` }],
-    isError: true,
-  };
-}
 
 async function ensureGroupExists(groupId: string) {
   const group = await prisma.group.findFirst({

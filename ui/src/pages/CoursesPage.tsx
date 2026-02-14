@@ -256,8 +256,12 @@ export default function CoursesPage() {
   };
 
   const loadInstructors = async () => {
+    if (!accessToken) {
+      setInstructors([]);
+      return;
+    }
     try {
-      const result = (await api.instructorList()) as {
+      const result = (await api.instructorList(accessToken)) as {
         instructors: Instructor[];
         total: number;
       };
@@ -840,8 +844,9 @@ export default function CoursesPage() {
     });
   };
 
-  const selectedInstructorIds =
-    (form.getFieldValue("instructorIds") as string[]) || [];
+  const selectedInstructorIds = isModalOpen
+    ? ((form.getFieldValue("instructorIds") as string[]) || [])
+    : [];
 
   const selectedInstructors = instructors.filter((i) =>
     selectedInstructorIds.includes(i.id),
@@ -1164,9 +1169,9 @@ export default function CoursesPage() {
           type="info"
           showIcon
           style={{ marginBottom: 16 }}
-          message={`수락 대기 중인 코스 공유 요청 ${shareInbox.length}건`}
+          title={`수락 대기 중인 코스 공유 요청 ${shareInbox.length}건`}
           description={
-            <Space direction="vertical" size={8} style={{ width: "100%" }}>
+            <Space orientation="vertical" size={8} style={{ width: "100%" }}>
               {shareInbox.map((item) => (
                 <div
                   key={item.id}
@@ -1263,7 +1268,7 @@ export default function CoursesPage() {
       <Alert
         type="info"
         showIcon
-        message={
+        title={
           isMineOnlyView
             ? "내가 생성한 코스 목록만 조회 중입니다."
             : "코스 목록과 기본 정보를 관리합니다."
@@ -1422,7 +1427,7 @@ export default function CoursesPage() {
               onChange={(vals) => setSelectedShareUserIds(vals as string[])}
               style={{ width: "100%" }}
             >
-              <Space direction="vertical" style={{ width: "100%" }}>
+              <Space orientation="vertical" style={{ width: "100%" }}>
                 {shareTargets.length === 0 ? (
                   <span style={{ color: "#999" }}>공유 가능한 사용자가 없습니다.</span>
                 ) : (
@@ -1576,13 +1581,13 @@ export default function CoursesPage() {
                 type="warning"
                 showIcon
                 style={{ marginTop: 12 }}
-                message="본인 코스가 아니므로 수정할 수 없습니다."
+                title="본인 코스가 아니므로 수정할 수 없습니다."
               />
             )}
 
             <Divider />
             <h3 style={{ marginTop: 0 }}>PDF 내보내기</h3>
-            <Space direction="vertical" style={{ width: "100%" }} size={12}>
+            <Space orientation="vertical" style={{ width: "100%" }} size={12}>
               <div>
                 <div style={{ marginBottom: 6, fontWeight: 500 }}>템플릿 선택</div>
                 <Select
@@ -1649,7 +1654,7 @@ export default function CoursesPage() {
             type="info"
             showIcon
             style={{ marginBottom: 12 }}
-            message="현재 선택한 강의 1건에만 적용됩니다."
+            title="현재 선택한 강의 1건에만 적용됩니다."
           />
           <Form.Item label="전체공유 (대상 사용자 전체 선택/해제)">
             <Space>
@@ -1677,7 +1682,7 @@ export default function CoursesPage() {
               <Alert
                 type="info"
                 showIcon
-                message="전체공유 ON 상태입니다. 모든 대상자에게 공유됩니다."
+                title="전체공유 ON 상태입니다. 모든 대상자에게 공유됩니다."
               />
             ) : (
               <Checkbox.Group
@@ -1691,7 +1696,7 @@ export default function CoursesPage() {
                 }}
                 style={{ width: "100%" }}
               >
-                <Space direction="vertical" style={{ width: "100%" }}>
+                <Space orientation="vertical" style={{ width: "100%" }}>
                   {shareTargets.length === 0 ? (
                     <span style={{ color: "#999" }}>공유 가능한 사용자가 없습니다.</span>
                   ) : (
@@ -1745,7 +1750,7 @@ export default function CoursesPage() {
               <Alert
                 type="info"
                 showIcon
-                message="전체공유 ON 상태입니다. 모든 대상자에게 공유됩니다."
+                title="전체공유 ON 상태입니다. 모든 대상자에게 공유됩니다."
               />
             ) : (
               <Checkbox.Group
@@ -1759,7 +1764,7 @@ export default function CoursesPage() {
                 }}
                 style={{ width: "100%" }}
               >
-                <Space direction="vertical" style={{ width: "100%" }}>
+                <Space orientation="vertical" style={{ width: "100%" }}>
                   {shareTargets.length === 0 ? (
                     <span style={{ color: "#999" }}>공유 가능한 사용자가 없습니다.</span>
                   ) : (

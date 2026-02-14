@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import { requirePermission } from "../services/authorization.js";
 import { verifyToken } from "../services/jwt.js";
 import { prisma } from "../services/prisma.js";
+import { errorResult } from "../services/toolResponse.js";
 
 const nullableString = z.string().nullable().optional();
 
@@ -82,6 +84,11 @@ export async function scheduleUpsertHandler(args: {
         isError: true,
       };
     }
+    await requirePermission(
+      args.token,
+      "schedule.upsert",
+      "일정 생성/수정 권한이 없습니다.",
+    );
     let actorUserId: string | undefined;
     let actorRole: string | undefined;
     try {
@@ -184,21 +191,13 @@ export async function scheduleUpsertHandler(args: {
       ],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return {
-      content: [
-        {
-          type: "text" as const,
-          text: `Failed to upsert schedule: ${message}`,
-        },
-      ],
-      isError: true,
-    };
+    return errorResult("일정 저장 실패", error);
   }
 }
 
 export async function scheduleGetHandler(args: { id: string; token: string }) {
   try {
+    await requirePermission(args.token, "schedule.get", "일정 조회 권한이 없습니다.");
     try {
       verifyToken(args.token);
     } catch {
@@ -241,13 +240,7 @@ export async function scheduleGetHandler(args: { id: string; token: string }) {
       ],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return {
-      content: [
-        { type: "text" as const, text: `Failed to get schedule: ${message}` },
-      ],
-      isError: true,
-    };
+    return errorResult("일정 조회 실패", error);
   }
 }
 
@@ -257,6 +250,7 @@ export async function scheduleListHandler(args: {
   token: string;
 }) {
   try {
+    await requirePermission(args.token, "schedule.list", "일정 목록 조회 권한이 없습니다.");
     try {
       verifyToken(args.token);
     } catch {
@@ -301,12 +295,6 @@ export async function scheduleListHandler(args: {
       ],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return {
-      content: [
-        { type: "text" as const, text: `Failed to list schedules: ${message}` },
-      ],
-      isError: true,
-    };
+    return errorResult("일정 목록 조회 실패", error);
   }
 }

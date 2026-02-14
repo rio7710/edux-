@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { Prisma } from "@prisma/client";
+import { requirePermission, evaluatePermission } from "../services/authorization.js";
 import { verifyToken } from "../services/jwt.js";
-import { evaluatePermission } from "../services/authorization.js";
 import { createUserMessage } from "../services/message.js";
 import { prisma } from "../services/prisma.js";
+import { errorResult } from "../services/toolResponse.js";
 
 // createdBy ID를 사용자 이름으로 변환하는 헬퍼 함수
 async function resolveCreatorNames<T extends { createdBy?: string | null }>(
@@ -331,6 +332,11 @@ export async function courseUpsertHandler(args: {
         isError: true,
       };
     }
+    await requirePermission(
+      args.token,
+      "course.upsert",
+      "코스 생성/수정 권한이 없습니다.",
+    );
     let actorUserId: string | undefined;
     let actorRole: string | undefined;
     try {
@@ -417,13 +423,7 @@ export async function courseUpsertHandler(args: {
       ],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return {
-      content: [
-        { type: "text" as const, text: `Failed to upsert course: ${message}` },
-      ],
-      isError: true,
-    };
+    return errorResult("코스 저장 실패", error);
   }
 }
 
@@ -433,6 +433,7 @@ export async function courseListHandler(args: {
   token: string;
 }) {
   try {
+    await requirePermission(args.token, "course.list", "코스 목록 조회 권한이 없습니다.");
     const limit = args.limit || 50;
     const offset = args.offset || 0;
     let userId: string | undefined;
@@ -482,13 +483,7 @@ export async function courseListHandler(args: {
       ],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return {
-      content: [
-        { type: "text" as const, text: `Failed to list courses: ${message}` },
-      ],
-      isError: true,
-    };
+    return errorResult("코스 목록 조회 실패", error);
   }
 }
 
@@ -498,6 +493,11 @@ export async function courseListMineHandler(args: {
   token: string;
 }) {
   try {
+    await requirePermission(
+      args.token,
+      "course.listMine",
+      "내 코스 목록 조회 권한이 없습니다.",
+    );
     const limit = args.limit || 50;
     const offset = args.offset || 0;
     let userId: string | undefined;
@@ -548,18 +548,13 @@ export async function courseListMineHandler(args: {
       ],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return {
-      content: [
-        { type: "text" as const, text: `Failed to list my courses: ${message}` },
-      ],
-      isError: true,
-    };
+    return errorResult("내 코스 목록 조회 실패", error);
   }
 }
 
 export async function courseGetHandler(args: { id: string; token: string }) {
   try {
+    await requirePermission(args.token, "course.get", "코스 조회 권한이 없습니다.");
     let userId: string | undefined;
     let role: string | undefined;
     try {
@@ -672,18 +667,13 @@ export async function courseGetHandler(args: { id: string; token: string }) {
       ],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return {
-      content: [
-        { type: "text" as const, text: `Failed to get course: ${message}` },
-      ],
-      isError: true,
-    };
+    return errorResult("코스 조회 실패", error);
   }
 }
 
 export async function courseDeleteHandler(args: { id: string; token: string }) {
   try {
+    await requirePermission(args.token, "course.delete", "코스 삭제 권한이 없습니다.");
     const decision = await evaluatePermission({
       token: args.token,
       permissionKey: "course.delete",
@@ -768,13 +758,7 @@ export async function courseDeleteHandler(args: { id: string; token: string }) {
       ],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return {
-      content: [
-        { type: "text" as const, text: `Failed to delete course: ${message}` },
-      ],
-      isError: true,
-    };
+    return errorResult("코스 삭제 실패", error);
   }
 }
 
@@ -784,6 +768,11 @@ export async function courseShareInviteHandler(args: {
   targetUserId: string;
 }) {
   try {
+    await requirePermission(
+      args.token,
+      "course.shareInvite",
+      "코스 공유 초대 권한이 없습니다.",
+    );
     const payload = verifyToken(args.token);
     const actor = await prisma.user.findUnique({
       where: { id: payload.userId, isActive: true, deletedAt: null },
@@ -897,13 +886,7 @@ export async function courseShareInviteHandler(args: {
       content: [{ type: "text" as const, text: JSON.stringify(result) }],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return {
-      content: [
-        { type: "text" as const, text: `Failed to invite course share: ${message}` },
-      ],
-      isError: true,
-    };
+    return errorResult("코스 공유 초대 실패", error);
   }
 }
 
@@ -914,6 +897,11 @@ export async function courseShareRespondHandler(args: {
   reason?: string;
 }) {
   try {
+    await requirePermission(
+      args.token,
+      "course.shareRespond",
+      "코스 공유 응답 권한이 없습니다.",
+    );
     const payload = verifyToken(args.token);
     const user = await prisma.user.findUnique({
       where: { id: payload.userId, isActive: true, deletedAt: null },
@@ -1014,13 +1002,7 @@ export async function courseShareRespondHandler(args: {
         isError: true,
       };
     }
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return {
-      content: [
-        { type: "text" as const, text: `Failed to respond course share: ${message}` },
-      ],
-      isError: true,
-    };
+    return errorResult("코스 공유 응답 실패", error);
   }
 }
 
@@ -1029,6 +1011,11 @@ export async function courseShareListReceivedHandler(args: {
   status?: "pending" | "accepted" | "rejected";
 }) {
   try {
+    await requirePermission(
+      args.token,
+      "course.shareListReceived",
+      "코스 공유 요청 목록 조회 권한이 없습니다.",
+    );
     const payload = verifyToken(args.token);
     const user = await prisma.user.findUnique({
       where: { id: payload.userId, isActive: true, deletedAt: null },
@@ -1071,13 +1058,7 @@ export async function courseShareListReceivedHandler(args: {
       content: [{ type: "text" as const, text: JSON.stringify({ shares }) }],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return {
-      content: [
-        { type: "text" as const, text: `Failed to list received course shares: ${message}` },
-      ],
-      isError: true,
-    };
+    return errorResult("수신 코스 공유 목록 조회 실패", error);
   }
 }
 
@@ -1086,6 +1067,11 @@ export async function courseShareListForCourseHandler(args: {
   courseId: string;
 }) {
   try {
+    await requirePermission(
+      args.token,
+      "course.shareListForCourse",
+      "코스 공유 대상 목록 조회 권한이 없습니다.",
+    );
     const payload = verifyToken(args.token);
     const actor = await prisma.user.findUnique({
       where: { id: payload.userId, isActive: true, deletedAt: null },
@@ -1139,13 +1125,7 @@ export async function courseShareListForCourseHandler(args: {
       content: [{ type: "text" as const, text: JSON.stringify({ shares }) }],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return {
-      content: [
-        { type: "text" as const, text: `Failed to list course shares: ${message}` },
-      ],
-      isError: true,
-    };
+    return errorResult("코스 공유 대상 목록 조회 실패", error);
   }
 }
 
@@ -1155,6 +1135,11 @@ export async function courseShareRevokeHandler(args: {
   targetUserId: string;
 }) {
   try {
+    await requirePermission(
+      args.token,
+      "course.shareRevoke",
+      "코스 공유 해제 권한이 없습니다.",
+    );
     const payload = verifyToken(args.token);
     const actor = await prisma.user.findUnique({
       where: { id: payload.userId, isActive: true, deletedAt: null },
@@ -1253,13 +1238,7 @@ export async function courseShareRevokeHandler(args: {
       ],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return {
-      content: [
-        { type: "text" as const, text: `Failed to revoke course share: ${message}` },
-      ],
-      isError: true,
-    };
+    return errorResult("코스 공유 해제 실패", error);
   }
 }
 
@@ -1269,6 +1248,11 @@ export async function courseShareTargetsHandler(args: {
   limit?: number;
 }) {
   try {
+    await requirePermission(
+      args.token,
+      "course.shareTargets",
+      "코스 공유 대상 조회 권한이 없습니다.",
+    );
     const payload = verifyToken(args.token);
     const actor = await prisma.user.findUnique({
       where: { id: payload.userId, isActive: true, deletedAt: null },
@@ -1309,13 +1293,7 @@ export async function courseShareTargetsHandler(args: {
       content: [{ type: "text" as const, text: JSON.stringify({ targets }) }],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return {
-      content: [
-        { type: "text" as const, text: `Failed to list share targets: ${message}` },
-      ],
-      isError: true,
-    };
+    return errorResult("코스 공유 대상 사용자 조회 실패", error);
   }
 }
 
@@ -1324,6 +1302,11 @@ export async function courseShareLeaveHandler(args: {
   courseId: string;
 }) {
   try {
+    await requirePermission(
+      args.token,
+      "course.shareLeave",
+      "코스 공유 해제 권한이 없습니다.",
+    );
     const payload = verifyToken(args.token);
     const actor = await prisma.user.findUnique({
       where: { id: payload.userId, isActive: true, deletedAt: null },
@@ -1418,12 +1401,6 @@ export async function courseShareLeaveHandler(args: {
       ],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return {
-      content: [
-        { type: "text" as const, text: `Failed to leave course share: ${message}` },
-      ],
-      isError: true,
-    };
+    return errorResult("코스 공유 해제(수신자) 실패", error);
   }
 }

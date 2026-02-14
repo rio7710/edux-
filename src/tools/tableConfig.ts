@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { prisma } from "../services/prisma.js";
-import { verifyToken } from "../services/jwt.js";
+import { requirePermission } from "../services/authorization.js";
+import { errorResult } from "../services/toolResponse.js";
 
 const OWNER_TYPE_GLOBAL = "global";
 
@@ -28,24 +29,16 @@ export const tableConfigUpsertSchema = {
     .describe("컬럼 설정 목록"),
 };
 
-function verifyAnyUser(token: string) {
-  return verifyToken(token) as { userId: string; role: string };
-}
-
-function requireAdminOperator(token: string) {
-  const payload = verifyToken(token) as { userId: string; role: string };
-  if (payload.role !== "admin" && payload.role !== "operator") {
-    throw new Error("관리자 또는 운영자 권한이 필요합니다.");
-  }
-  return payload;
-}
-
 export async function tableConfigGetHandler(args: {
   token: string;
   tableKey: string;
 }) {
   try {
-    verifyAnyUser(args.token);
+    await requirePermission(
+      args.token,
+      "tableConfig.get",
+      "테이블 설정 조회 권한이 없습니다.",
+    );
 
     const items = await prisma.tableColumnConfig.findMany({
       where: {
@@ -65,13 +58,7 @@ export async function tableConfigGetHandler(args: {
       ],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return {
-      content: [
-        { type: "text" as const, text: `설정 조회 실패: ${message}` },
-      ],
-      isError: true,
-    };
+    return errorResult("설정 조회 실패", error);
   }
 }
 
@@ -89,7 +76,11 @@ export async function tableConfigUpsertHandler(args: {
   }>;
 }) {
   try {
-    requireAdminOperator(args.token);
+    await requirePermission(
+      args.token,
+      "tableConfig.upsert",
+      "테이블 설정 저장 권한이 없습니다.",
+    );
 
     const columns = args.columns.map((c, index) => ({
       tableKey: args.tableKey,
@@ -126,12 +117,6 @@ export async function tableConfigUpsertHandler(args: {
       ],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return {
-      content: [
-        { type: "text" as const, text: `설정 저장 실패: ${message}` },
-      ],
-      isError: true,
-    };
+    return errorResult("설정 저장 실패", error);
   }
 }

@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import { prisma } from '../services/prisma.js';
 import { renderQueue, RENDER_QUEUE_NAME } from '../services/queue.js'; // Import the queue
+import { requirePermission } from '../services/authorization.js';
 import { verifyToken } from '../services/jwt.js';
+import { errorResult } from '../services/toolResponse.js';
 
 // 스키마 정의
 export const renderCoursePdfSchema = {
@@ -33,6 +35,7 @@ export async function renderCoursePdfHandler(args: {
   label?: string;
 }) {
   try {
+    await requirePermission(args.token, 'render.coursePdf', '코스 PDF 렌더 권한이 없습니다.');
     const payload = verifyToken(args.token);
     const user = await prisma.user.findUnique({
       where: { id: payload.userId, isActive: true, deletedAt: null },
@@ -133,11 +136,7 @@ export async function renderCoursePdfHandler(args: {
       content: [{ type: 'text' as const, text: JSON.stringify({ jobId: renderJob.id, status: renderJob.status }) }],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    return {
-      content: [{ type: 'text' as const, text: `Failed to enqueue course PDF render job: ${message}` }],
-      isError: true,
-    };
+    return errorResult('코스 PDF 렌더 작업 등록 실패', error);
   }
 }
 
@@ -148,6 +147,7 @@ export async function renderSchedulePdfHandler(args: {
   label?: string;
 }) {
   try {
+    await requirePermission(args.token, 'render.schedulePdf', '일정 PDF 렌더 권한이 없습니다.');
     const payload = verifyToken(args.token);
     const user = await prisma.user.findUnique({
       where: { id: payload.userId, isActive: true, deletedAt: null },
@@ -248,11 +248,7 @@ export async function renderSchedulePdfHandler(args: {
       content: [{ type: 'text' as const, text: JSON.stringify({ jobId: renderJob.id, status: renderJob.status }) }],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    return {
-      content: [{ type: 'text' as const, text: `Failed to enqueue schedule PDF render job: ${message}` }],
-      isError: true,
-    };
+    return errorResult('일정 PDF 렌더 작업 등록 실패', error);
   }
 }
 
@@ -263,6 +259,11 @@ export async function renderInstructorProfilePdfHandler(args: {
   label?: string;
 }) {
   try {
+    await requirePermission(
+      args.token,
+      'render.instructorProfilePdf',
+      '강사 프로필 PDF 렌더 권한이 없습니다.',
+    );
     const payload = verifyToken(args.token);
     const user = await prisma.user.findUnique({
       where: { id: payload.userId, isActive: true, deletedAt: null },
@@ -335,10 +336,6 @@ export async function renderInstructorProfilePdfHandler(args: {
       content: [{ type: 'text' as const, text: JSON.stringify({ jobId: renderJob.id, status: renderJob.status }) }],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    return {
-      content: [{ type: 'text' as const, text: `Failed to enqueue instructor profile PDF render job: ${message}` }],
-      isError: true,
-    };
+    return errorResult('강사 프로필 PDF 렌더 작업 등록 실패', error);
   }
 }

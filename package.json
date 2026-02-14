@@ -16,7 +16,9 @@
     "db:generate": "prisma generate",
     "db:studio": "prisma studio",
     "test": "vitest",
-    "test:coverage": "vitest --coverage"
+    "test:coverage": "vitest --coverage",
+    "test:permissions": "tsx scripts/check-permission-matrix.ts",
+    "test:permissions:scenarios": "tsx scripts/check-permission-scenarios.ts"
   },
   "keywords": [
     "mcp",

@@ -1,8 +1,10 @@
 import type { Prisma, UserMessageCategory } from "@prisma/client";
 import { z } from "zod";
+import { requirePermission } from "../services/authorization.js";
 import { verifyToken } from "../services/jwt.js";
 import { createUserMessage, createUserMessages } from "../services/message.js";
 import { prisma } from "../services/prisma.js";
+import { errorResult } from "../services/toolResponse.js";
 
 const MESSAGE_CATEGORY_VALUES = [
   "system",
@@ -219,6 +221,7 @@ export async function messageListHandler(args: {
   query?: string;
 }) {
   try {
+    await requirePermission(args.token, "message.list", "메시지 조회 권한이 없습니다.");
     const actor = await verifyActiveUser(args.token);
     const limit = args.limit ?? 50;
     const offset = args.offset ?? 0;
@@ -266,11 +269,7 @@ export async function messageListHandler(args: {
         isError: true,
       };
     }
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return {
-      content: [{ type: "text" as const, text: `Failed to list messages: ${message}` }],
-      isError: true,
-    };
+    return errorResult("메시지 목록 조회 실패", error);
   }
 }
 
@@ -279,6 +278,7 @@ export async function messageUnreadCountHandler(args: {
   category?: UserMessageCategory;
 }) {
   try {
+    await requirePermission(args.token, "message.list", "메시지 조회 권한이 없습니다.");
     const actor = await verifyActiveUser(args.token);
     const count = await prisma.userMessage.count({
       where: {
@@ -299,16 +299,13 @@ export async function messageUnreadCountHandler(args: {
         isError: true,
       };
     }
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return {
-      content: [{ type: "text" as const, text: `Failed to count unread messages: ${message}` }],
-      isError: true,
-    };
+    return errorResult("안 읽은 메시지 개수 조회 실패", error);
   }
 }
 
 export async function messageUnreadSummaryHandler(args: { token: string }) {
   try {
+    await requirePermission(args.token, "message.list", "메시지 조회 권한이 없습니다.");
     const actor = await verifyActiveUser(args.token);
     const grouped = await prisma.userMessage.groupBy({
       by: ["category"],
@@ -346,11 +343,7 @@ export async function messageUnreadSummaryHandler(args: { token: string }) {
         isError: true,
       };
     }
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return {
-      content: [{ type: "text" as const, text: `Failed to load unread summary: ${message}` }],
-      isError: true,
-    };
+    return errorResult("안 읽은 메시지 요약 조회 실패", error);
   }
 }
 
@@ -360,6 +353,7 @@ export async function messageMarkReadHandler(args: {
   read?: boolean;
 }) {
   try {
+    await requirePermission(args.token, "message.list", "메시지 읽음 처리 권한이 없습니다.");
     const actor = await verifyActiveUser(args.token);
     const read = args.read ?? true;
     if (!read) {
@@ -398,11 +392,7 @@ export async function messageMarkReadHandler(args: {
         isError: true,
       };
     }
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return {
-      content: [{ type: "text" as const, text: `Failed to mark message read: ${message}` }],
-      isError: true,
-    };
+    return errorResult("메시지 읽음 처리 실패", error);
   }
 }
 
@@ -411,6 +401,7 @@ export async function messageMarkAllReadHandler(args: {
   category?: UserMessageCategory;
 }) {
   try {
+    await requirePermission(args.token, "message.list", "메시지 읽음 처리 권한이 없습니다.");
     const actor = await verifyActiveUser(args.token);
     const updated = await prisma.userMessage.updateMany({
       where: {
@@ -437,11 +428,7 @@ export async function messageMarkAllReadHandler(args: {
         isError: true,
       };
     }
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return {
-      content: [{ type: "text" as const, text: `Failed to mark all messages read: ${message}` }],
-      isError: true,
-    };
+    return errorResult("전체 메시지 읽음 처리 실패", error);
   }
 }
 
@@ -450,6 +437,7 @@ export async function messageDeleteHandler(args: {
   messageId: string;
 }) {
   try {
+    await requirePermission(args.token, "message.delete", "메시지 삭제 권한이 없습니다.");
     const actor = await verifyActiveUser(args.token);
     const updated = await prisma.userMessage.updateMany({
       where: {
@@ -474,11 +462,7 @@ export async function messageDeleteHandler(args: {
         isError: true,
       };
     }
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return {
-      content: [{ type: "text" as const, text: `Failed to delete message: ${message}` }],
-      isError: true,
-    };
+    return errorResult("메시지 삭제 실패", error);
   }
 }
 
@@ -492,6 +476,7 @@ export async function messageSendHandler(args: {
   actionPayload?: unknown;
 }) {
   try {
+    await requirePermission(args.token, "message.send", "메시지 전송 권한이 없습니다.");
     const actor = await verifyActiveUser(args.token);
 
     const recipient = await prisma.user.findUnique({
@@ -525,11 +510,7 @@ export async function messageSendHandler(args: {
         isError: true,
       };
     }
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return {
-      content: [{ type: "text" as const, text: `Failed to send message: ${message}` }],
-      isError: true,
-    };
+    return errorResult("메시지 전송 실패", error);
   }
 }
 
@@ -539,6 +520,7 @@ export async function messageRecipientListHandler(args: {
   limit?: number;
 }) {
   try {
+    await requirePermission(args.token, "message.send", "수신자 조회 권한이 없습니다.");
     const actor = await verifyActiveUser(args.token);
     const limit = args.limit ?? 50;
     const query = args.query?.trim();
@@ -582,13 +564,7 @@ export async function messageRecipientListHandler(args: {
         isError: true,
       };
     }
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return {
-      content: [
-        { type: "text" as const, text: `Failed to list message recipients: ${message}` },
-      ],
-      isError: true,
-    };
+    return errorResult("메시지 수신자 조회 실패", error);
   }
 }
 
@@ -598,6 +574,7 @@ export async function messageSeedDummyHandler(args: {
   count?: number;
 }) {
   try {
+    await requirePermission(args.token, "message.seedDummy", "더미 메시지 생성 권한이 없습니다.");
     const actor = await verifyActiveUser(args.token);
     const targetUserId = args.targetUserId ?? actor.id;
     if (targetUserId !== actor.id && !isAdminLike(actor.role)) {
@@ -664,10 +641,6 @@ export async function messageSeedDummyHandler(args: {
         isError: true,
       };
     }
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return {
-      content: [{ type: "text" as const, text: `Failed to seed dummy messages: ${message}` }],
-      isError: true,
-    };
+    return errorResult("더미 메시지 생성 실패", error);
   }
 }

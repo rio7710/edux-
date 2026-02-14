@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import crypto from 'crypto';
 import { prisma } from '../services/prisma.js';
+import { requirePermission } from '../services/authorization.js';
 import { verifyToken } from '../services/jwt.js';
+import { errorResult } from '../services/toolResponse.js';
 
 export const documentListSchema = {
   token: z.string().describe('액세스 토큰'),
@@ -52,6 +54,7 @@ export async function documentListHandler(args: {
   pageSize?: number;
 }) {
   try {
+    await requirePermission(args.token, 'document.list', '문서 목록 조회 권한이 없습니다.');
     const userId = await getActiveUserId(args.token);
     if (!userId) {
       return {
@@ -83,16 +86,13 @@ export async function documentListHandler(args: {
       content: [{ type: 'text' as const, text: JSON.stringify({ items, total }) }],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    return {
-      content: [{ type: 'text' as const, text: `Failed to list documents: ${message}` }],
-      isError: true,
-    };
+    return errorResult('문서 목록 조회 실패', error);
   }
 }
 
 export async function documentDeleteHandler(args: { token: string; id: string }) {
   try {
+    await requirePermission(args.token, 'document.delete', '문서 삭제 권한이 없습니다.');
     const userId = await getActiveUserId(args.token);
     if (!userId) {
       return {
@@ -121,11 +121,7 @@ export async function documentDeleteHandler(args: { token: string; id: string })
       content: [{ type: 'text' as const, text: JSON.stringify({ id: args.id }) }],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    return {
-      content: [{ type: 'text' as const, text: `Failed to delete document: ${message}` }],
-      isError: true,
-    };
+    return errorResult('문서 삭제 실패', error);
   }
 }
 
@@ -135,6 +131,7 @@ export async function documentShareHandler(args: {
   regenerate?: boolean;
 }) {
   try {
+    await requirePermission(args.token, 'document.share', '문서 공유 권한이 없습니다.');
     const userId = await getActiveUserId(args.token);
     if (!userId) {
       return {
@@ -168,16 +165,17 @@ export async function documentShareHandler(args: {
       content: [{ type: 'text' as const, text: JSON.stringify({ id: doc.id, shareToken: doc.shareToken }) }],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    return {
-      content: [{ type: 'text' as const, text: `Failed to share document: ${message}` }],
-      isError: true,
-    };
+    return errorResult('문서 공유 실패', error);
   }
 }
 
 export async function documentRevokeShareHandler(args: { token: string; id: string }) {
   try {
+    await requirePermission(
+      args.token,
+      'document.revokeShare',
+      '문서 공유 해제 권한이 없습니다.',
+    );
     const userId = await getActiveUserId(args.token);
     if (!userId) {
       return {
@@ -206,10 +204,6 @@ export async function documentRevokeShareHandler(args: { token: string; id: stri
       content: [{ type: 'text' as const, text: JSON.stringify({ id: doc.id, shareToken: null }) }],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    return {
-      content: [{ type: 'text' as const, text: `Failed to revoke share: ${message}` }],
-      isError: true,
-    };
+    return errorResult('문서 공유 해제 실패', error);
   }
 }

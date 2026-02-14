@@ -495,7 +495,7 @@ class McpClient {
           finalize();
           reject(logged);
         })
-        .catch((err) => {
+        .catch(async (err) => {
           window.clearTimeout(timeout);
           this.pendingRequests.delete(id);
           if (getErrorReportId(err)) {
@@ -503,15 +503,34 @@ class McpClient {
             reject(err);
             return;
           }
-          const logged = this.logToolError({
-            phase: "network_error",
-            toolName: name,
-            args,
-            requestId: id,
-            error: err,
-          });
-          finalize();
-          reject(logged);
+
+          // Network interruptions are common when SSE/session is re-established.
+          // Retry once after forcing reconnect.
+          this.disconnect();
+          try {
+            const retried = await this.callTool<T>(name, args);
+            finalize();
+            resolve(retried);
+            return;
+          } catch (retryErr) {
+            if (getErrorReportId(retryErr)) {
+              finalize();
+              reject(retryErr);
+              return;
+            }
+            const logged = this.logToolError({
+              phase: "network_error",
+              toolName: name,
+              args,
+              requestId: id,
+              error: retryErr,
+              extra: {
+                retriedAfterNetworkError: true,
+              },
+            });
+            finalize();
+            reject(logged);
+          }
         });
     });
   }
@@ -600,13 +619,14 @@ export const api = {
     token?: string;
   }) => mcpClient.callTool("instructor.upsert", data),
 
-  instructorGet: (id: string) => mcpClient.callTool("instructor.get", { id }),
+  instructorGet: (id: string, token: string) =>
+    mcpClient.callTool("instructor.get", { id, token }),
 
   instructorGetByUser: (token: string) =>
     mcpClient.callTool("instructor.getByUser", { token }),
 
-  instructorList: (limit = 50, offset = 0) =>
-    mcpClient.callTool("instructor.list", { limit, offset }),
+  instructorList: (token: string, limit = 50, offset = 0) =>
+    mcpClient.callTool("instructor.list", { token, limit, offset }),
 
   // Lecture
   lectureUpsert: (data: {

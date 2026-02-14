@@ -24,7 +24,7 @@ import {
   UserOutlined,
 } from '@ant-design/icons';
 import { useMutation } from '@tanstack/react-query';
-import { api, mcpClient } from '../api/mcpClient';
+import { api } from '../api/mcpClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useSitePermissions } from '../hooks/useSitePermissions';
 import { useTableConfig } from '../hooks/useTableConfig';
@@ -211,9 +211,14 @@ export default function InstructorsPage() {
   };
 
   const loadInstructors = async () => {
+    if (!accessToken) {
+      setInstructors([]);
+      setLoading(false);
+      return;
+    }
     try {
       setLoading(true);
-      const result = await api.instructorList() as { instructors: Instructor[]; total: number };
+      const result = await api.instructorList(accessToken) as { instructors: Instructor[]; total: number };
       setInstructors(result.instructors);
     } catch (error) {
       console.error('Failed to load instructors:', error);
@@ -223,10 +228,13 @@ export default function InstructorsPage() {
   };
 
   useEffect(() => {
-    mcpClient.onConnect(() => {
-      loadInstructors();
-    });
-  }, []);
+    if (!accessToken) {
+      setInstructors([]);
+      setLoading(false);
+      return;
+    }
+    void loadInstructors();
+  }, [accessToken]);
 
   useEffect(() => {
     const handler = () => {
@@ -310,7 +318,10 @@ export default function InstructorsPage() {
   });
 
   const fetchMutation = useMutation({
-    mutationFn: (id: string) => api.instructorGet(id),
+    mutationFn: (id: string) => {
+      if (!accessToken) throw new Error("인증이 필요합니다.");
+      return api.instructorGet(id, accessToken);
+    },
     onSuccess: (result: unknown) => {
       const instructor = result as Instructor;
       setViewInstructor(instructor);
@@ -428,7 +439,7 @@ export default function InstructorsPage() {
       if (isAdminOperator) {
         loadedUsers = await loadUsers();
       }
-      const full = await api.instructorGet(instructor.id) as Instructor;
+      const full = await api.instructorGet(instructor.id, accessToken) as Instructor;
 
       // If linked user is missing from current user options (e.g., pagination),
       // fetch that user directly so Select can render the current value label.
@@ -747,7 +758,7 @@ export default function InstructorsPage() {
       <Alert
         type="info"
         showIcon
-        message="강사 기본 정보와 이력 데이터를 관리합니다."
+        title="강사 기본 정보와 이력 데이터를 관리합니다."
         description="리스트 컬럼은 사이트 관리의 목차 설정에 따라 표시/순서가 변경됩니다."
         style={{ marginBottom: 16 }}
       />

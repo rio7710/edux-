@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { prisma } from "../services/prisma.js";
-import { verifyToken } from "../services/jwt.js";
+import { requirePermission } from "../services/authorization.js";
+import { errorResult } from "../services/toolResponse.js";
 
 export const siteSettingGetSchema = {
   token: z.string().describe("액세스 토큰"),
@@ -17,24 +18,16 @@ export const siteSettingUpsertSchema = {
   value: z.any().describe("설정 값 (JSON)"),
 };
 
-function requireAdminOperator(token: string) {
-  const payload = verifyToken(token) as { userId: string; role: string };
-  if (payload.role !== "admin" && payload.role !== "operator") {
-    throw new Error("관리자 또는 운영자 권한이 필요합니다.");
-  }
-  return payload;
-}
-
-function verifyAnyUser(token: string) {
-  return verifyToken(token) as { userId: string; role: string };
-}
-
 export async function siteSettingGetHandler(args: {
   token: string;
   key: string;
 }) {
   try {
-    verifyAnyUser(args.token);
+    await requirePermission(
+      args.token,
+      "site.settings.read",
+      "사이트 설정 조회 권한이 없습니다.",
+    );
     const item = await prisma.appSetting.findUnique({
       where: { key: args.key },
     });
@@ -47,11 +40,7 @@ export async function siteSettingGetHandler(args: {
       ],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return {
-      content: [{ type: "text" as const, text: `설정 조회 실패: ${message}` }],
-      isError: true,
-    };
+    return errorResult("설정 조회 실패", error);
   }
 }
 
@@ -60,7 +49,11 @@ export async function siteSettingGetManyHandler(args: {
   keys: string[];
 }) {
   try {
-    verifyAnyUser(args.token);
+    await requirePermission(
+      args.token,
+      "site.settings.read",
+      "사이트 설정 조회 권한이 없습니다.",
+    );
     const keys = Array.from(new Set((args.keys || []).map((key) => key.trim()).filter(Boolean)));
     if (keys.length === 0) {
       return {
@@ -95,11 +88,7 @@ export async function siteSettingGetManyHandler(args: {
       ],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return {
-      content: [{ type: "text" as const, text: `설정 다건 조회 실패: ${message}` }],
-      isError: true,
-    };
+    return errorResult("설정 다건 조회 실패", error);
   }
 }
 
@@ -109,7 +98,11 @@ export async function siteSettingUpsertHandler(args: {
   value: any;
 }) {
   try {
-    requireAdminOperator(args.token);
+    await requirePermission(
+      args.token,
+      "site.settings.update",
+      "사이트 설정 저장 권한이 없습니다.",
+    );
     const item = await prisma.appSetting.upsert({
       where: { key: args.key },
       create: { key: args.key, value: args.value },
@@ -124,10 +117,6 @@ export async function siteSettingUpsertHandler(args: {
       ],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return {
-      content: [{ type: "text" as const, text: `설정 저장 실패: ${message}` }],
-      isError: true,
-    };
+    return errorResult("설정 저장 실패", error);
   }
 }

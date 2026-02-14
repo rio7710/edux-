@@ -30,6 +30,63 @@
 
 ---
 
+## Tool -> Permission Key 매핑 (서버 강제)
+
+| Tool | Permission Key |
+|------|----------------|
+| `dashboard.bootstrap` | `dashboard.read` |
+| `siteSetting.get`, `siteSetting.getMany` | `site.settings.read` |
+| `siteSetting.upsert` | `site.settings.update` |
+| `tableConfig.get` | `tableConfig.get` |
+| `tableConfig.upsert` | `tableConfig.upsert` |
+| `course.upsert` | `course.upsert` |
+| `course.get` | `course.get` |
+| `course.list` | `course.list` |
+| `course.listMine` | `course.listMine` |
+| `course.delete` | `course.delete` |
+| `course.shareInvite` | `course.shareInvite` |
+| `course.shareRespond` | `course.shareRespond` |
+| `course.shareListReceived` | `course.shareListReceived` |
+| `course.shareListForCourse` | `course.shareListForCourse` |
+| `course.shareRevoke` | `course.shareRevoke` |
+| `course.shareTargets` | `course.shareTargets` |
+| `course.shareLeave` | `course.shareLeave` |
+| `instructor.upsert` | `instructor.upsert` |
+| `instructor.get` | `instructor.get` |
+| `instructor.getByUser` | `instructor.getByUser` |
+| `instructor.list` | `instructor.list` |
+| `lecture.upsert`, `lecture.map` | `lecture.upsert` |
+| `lecture.get` | `lecture.get` |
+| `lecture.list` | `lecture.list` |
+| `lecture.delete` | `lecture.delete` |
+| `lecture.grant.list` | `lecture.grant.list` |
+| `lecture.grant.upsert` | `lecture.grant.upsert` |
+| `lecture.grant.delete` | `lecture.grant.delete` |
+| `lecture.grant.listMine` | `lecture.grant.listMine` |
+| `lecture.grant.leave` | `lecture.grant.leave` |
+| `schedule.upsert` | `schedule.upsert` |
+| `schedule.get` | `schedule.get` |
+| `schedule.list` | `schedule.list` |
+| `template.create`, `template.upsert` | `template.update` |
+| `template.get`, `template.list` | `template.read` |
+| `template.delete` | `template.delete` |
+| `render.coursePdf` | `render.coursePdf` |
+| `render.schedulePdf` | `render.schedulePdf` |
+| `render.instructorProfilePdf` | `render.instructorProfilePdf` |
+| `document.list` | `document.list` |
+| `document.delete` | `document.delete` |
+| `document.share` | `document.share` |
+| `document.revokeShare` | `document.revokeShare` |
+| `message.list`, `message.unreadCount`, `message.unreadSummary`, `message.markRead`, `message.markAllRead` | `message.list` |
+| `message.send`, `message.recipientList` | `message.send` |
+| `message.delete` | `message.delete` |
+| `message.seedDummy` | `message.seedDummy` |
+| `group.list`, `group.upsert`, `group.delete` | `group.manage` |
+| `group.member.list`, `group.member.add`, `group.member.remove`, `group.member.updateRole` | `group.member.manage` |
+| `permission.grant.list`, `permission.grant.upsert`, `permission.grant.delete` | `group.permission.manage` |
+
+---
+
 ## 코스 툴
 
 ### `course.upsert`

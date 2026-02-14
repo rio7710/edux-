@@ -136,10 +136,12 @@ export default function DashboardPage() {
     lectureGrant: 0,
     instructorApproval: 0,
   });
+  const [bootstrapReady, setBootstrapReady] = useState(false);
   const isInstructorRole = user?.role === 'instructor';
 
   useEffect(() => {
     let cancelled = false;
+    setBootstrapReady(false);
     const load = async () => {
       if (!isAuthenticated || !accessToken) return;
       try {
@@ -183,6 +185,10 @@ export default function DashboardPage() {
           lectureGrant: 0,
           instructorApproval: 0,
         });
+      } finally {
+        if (!cancelled) {
+          setBootstrapReady(true);
+        }
       }
     };
     load();
@@ -192,6 +198,7 @@ export default function DashboardPage() {
   }, [accessToken, isAuthenticated]);
 
   useEffect(() => {
+    if (!bootstrapReady) return;
     let cancelled = false;
     const loadRealtimeMessageData = async () => {
       if (!isAuthenticated || !accessToken) return;
@@ -278,7 +285,7 @@ export default function DashboardPage() {
       window.removeEventListener('focus', onFocus);
       window.removeEventListener('visibilitychange', onVisibilityChange);
     };
-  }, [accessToken, isAuthenticated]);
+  }, [accessToken, isAuthenticated, bootstrapReady]);
 
   const courseCounts = useMemo(
     () => countByPeriod(courses, (c) => toDate(c.createdAt)),
@@ -512,7 +519,7 @@ export default function DashboardPage() {
             background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
           }}
         >
-          <Space direction="vertical" size={14} style={{ width: '100%' }}>
+          <Space orientation="vertical" size={14} style={{ width: '100%' }}>
             <Text strong style={{ fontSize: 16 }}>빠른 요약</Text>
             <Space size={16} wrap>
               <div>
@@ -551,7 +558,7 @@ export default function DashboardPage() {
               cursor: 'pointer',
             }}
           >
-            <Space direction="vertical" size={12} style={{ width: '100%' }}>
+            <Space orientation="vertical" size={12} style={{ width: '100%' }}>
               <Space style={{ justifyContent: 'space-between', width: '100%' }}>
                 <Space>
                   <div
@@ -613,7 +620,7 @@ export default function DashboardPage() {
               background: 'linear-gradient(180deg, #ffffff 0%, #fdf4ff 100%)',
             }}
           >
-            <Space direction="vertical" size={12} style={{ width: '100%' }}>
+            <Space orientation="vertical" size={12} style={{ width: '100%' }}>
               <Space style={{ justifyContent: 'space-between', width: '100%' }}>
                 <Space>
                   <div
@@ -716,7 +723,7 @@ export default function DashboardPage() {
                   key={item.id}
                   style={{ borderBottom: '1px solid #e2e8f0', paddingBottom: 10 }}
                 >
-                  <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                  <Space orientation="vertical" size={4} style={{ width: '100%' }}>
                     <Space wrap>
                       <Tag color={messageCategoryColor[item.category]}>
                         {messageCategoryLabel[item.category]}
@@ -751,7 +758,7 @@ export default function DashboardPage() {
             <div style={{ display: 'grid', gap: 12 }}>
               {todayCourses.map((item) => (
                 <div key={item.id} style={{ borderBottom: '1px solid #f1f5f9', paddingBottom: 8 }}>
-                  <Space direction="vertical" size={2}>
+                  <Space orientation="vertical" size={2}>
                     <Text strong>{item.title}</Text>
                     <Text type="secondary" style={{ fontSize: 12 }}>
                       {item.createdAt ? new Date(item.createdAt).toLocaleString('ko-KR') : '-'}
@@ -769,7 +776,7 @@ export default function DashboardPage() {
             <div style={{ display: 'grid', gap: 12 }}>
               {todayInstructors.map((item) => (
                 <div key={item.id} style={{ borderBottom: '1px solid #f1f5f9', paddingBottom: 8 }}>
-                  <Space direction="vertical" size={2}>
+                  <Space orientation="vertical" size={2}>
                     <Text strong>{item.name}</Text>
                     <Text type="secondary" style={{ fontSize: 12 }}>
                       {item.createdAt ? new Date(item.createdAt).toLocaleString('ko-KR') : '-'}

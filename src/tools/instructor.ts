@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
+import { requirePermission } from "../services/authorization.js";
 import { verifyToken } from "../services/jwt.js";
 import { prisma } from "../services/prisma.js";
+import { errorResult } from "../services/toolResponse.js";
 
 const nullableString = z.string().nullable().optional();
 const nullableStringArray = z.array(z.string()).nullable().optional();
@@ -84,6 +86,7 @@ export const instructorUpsertSchema = {
 
 export const instructorGetSchema = {
   id: z.string().describe("강사 ID"),
+  token: z.string().describe("인증 토큰"),
 };
 
 export const instructorGetByUserSchema = {
@@ -91,6 +94,7 @@ export const instructorGetByUserSchema = {
 };
 
 export const instructorListSchema = {
+  token: z.string().describe("인증 토큰"),
   limit: z
     .number()
     .int()
@@ -129,6 +133,11 @@ export async function instructorUpsertHandler(args: {
         isError: true,
       };
     }
+    await requirePermission(
+      args.token,
+      "instructor.upsert",
+      "강사 생성/수정 권한이 없습니다.",
+    );
 
     const instructorId = args.id || `i_${randomUUID()}`;
 
@@ -271,24 +280,30 @@ export async function instructorUpsertHandler(args: {
       ],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return {
-      content: [
-        {
-          type: "text" as const,
-          text: `Failed to upsert instructor: ${message}`,
-        },
-      ],
-      isError: true,
-    };
+    return errorResult("강사 저장 실패", error);
   }
 }
 
 export async function instructorListHandler(args: {
+  token: string;
   limit?: number;
   offset?: number;
 }) {
   try {
+    await requirePermission(
+      args.token,
+      "instructor.list",
+      "강사 목록 조회 권한이 없습니다.",
+    );
+    try {
+      verifyToken(args.token);
+    } catch {
+      return {
+        content: [{ type: "text" as const, text: "인증 실패" }],
+        isError: true,
+      };
+    }
+
     const limit = args.limit || 50;
     const offset = args.offset || 0;
 
@@ -323,21 +338,26 @@ export async function instructorListHandler(args: {
       ],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return {
-      content: [
-        {
-          type: "text" as const,
-          text: `Failed to list instructors: ${message}`,
-        },
-      ],
-      isError: true,
-    };
+    return errorResult("강사 목록 조회 실패", error);
   }
 }
 
-export async function instructorGetHandler(args: { id: string }) {
+export async function instructorGetHandler(args: { id: string; token: string }) {
   try {
+    await requirePermission(
+      args.token,
+      "instructor.get",
+      "강사 조회 권한이 없습니다.",
+    );
+    try {
+      verifyToken(args.token);
+    } catch {
+      return {
+        content: [{ type: "text" as const, text: "인증 실패" }],
+        isError: true,
+      };
+    }
+
     const instructor = await prisma.instructor.findUnique({
       where: { id: args.id, deletedAt: null },
       include: {
@@ -392,18 +412,17 @@ export async function instructorGetHandler(args: { id: string }) {
       ],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return {
-      content: [
-        { type: "text" as const, text: `Failed to get instructor: ${message}` },
-      ],
-      isError: true,
-    };
+    return errorResult("강사 조회 실패", error);
   }
 }
 
 export async function instructorGetByUserHandler(args: { token: string }) {
   try {
+    await requirePermission(
+      args.token,
+      "instructor.getByUser",
+      "내 강사 정보 조회 권한이 없습니다.",
+    );
     let userId: string | undefined;
     try {
       const payload = verifyToken(args.token);
@@ -468,12 +487,6 @@ export async function instructorGetByUserHandler(args: { token: string }) {
       ],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return {
-      content: [
-        { type: "text" as const, text: `Failed to get instructor: ${message}` },
-      ],
-      isError: true,
-    };
+    return errorResult("내 강사 정보 조회 실패", error);
   }
 }

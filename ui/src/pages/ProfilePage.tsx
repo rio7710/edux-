@@ -139,6 +139,157 @@ export default function ProfilePage() {
   const [profileTab, setProfileTab] = useState<"overview" | "instructor" | "security">("overview");
   const [avatarUploading, setAvatarUploading] = useState(false);
 
+
+  useEffect(() => {
+    if (!accessToken || !user) return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const profileResult = (await api.getInstructorProfile(
+          accessToken,
+        )) as InstructorProfileData | null;
+        let fallbackInstructor: InstructorDataFallback | null = null;
+        if (
+          profileResult &&
+          !profileResult.title &&
+          !profileResult.bio &&
+          !profileResult.phone
+        ) {
+          try {
+            fallbackInstructor = (await api.instructorGetByUser(
+              accessToken,
+            )) as InstructorDataFallback;
+          } catch {
+            fallbackInstructor = null;
+          }
+        }
+        let instructorEntityResult: InstructorEntityData | null = null;
+        try {
+          instructorEntityResult = (await api.instructorGetByUser(
+            accessToken,
+          )) as InstructorEntityData;
+        } catch {
+          instructorEntityResult = null;
+        }
+        if (cancelled) return;
+        setInstructorProfile(profileResult);
+        setProfileId(profileResult?.id || null);
+        setInstructorEntity(instructorEntityResult);
+        instructorForm.setFieldsValue({
+          name: profileResult?.displayName || user.name,
+          title: profileResult?.title || fallbackInstructor?.title || undefined,
+          bio: profileResult?.bio || fallbackInstructor?.bio || undefined,
+          phone: user.phone || profileResult?.phone || fallbackInstructor?.phone || undefined,
+          website: user.website || profileResult?.website || undefined,
+          linksText: profileResult?.links
+            ? JSON.stringify(profileResult.links, null, 2)
+            : fallbackInstructor?.links
+              ? JSON.stringify(fallbackInstructor.links, null, 2)
+              : undefined,
+          degrees: profileResult?.degrees || [],
+          careers: profileResult?.careers || [],
+          publications: profileResult?.publications || [],
+          certifications: profileResult?.certifications || [],
+          specialtiesText: profileResult?.specialties?.join(", ") || undefined,
+          affiliation: profileResult?.affiliation || undefined,
+          email: profileResult?.email || user.email || undefined,
+          avatarUrl: user.avatarUrl || undefined,
+        });
+        instructorDetailForm.setFieldsValue({
+          id: instructorEntityResult?.id,
+          userId: instructorEntityResult?.userId || user.id,
+          name: instructorEntityResult?.name || user.name,
+          title: instructorEntityResult?.title || undefined,
+          email: instructorEntityResult?.email || user.email,
+          phone: instructorEntityResult?.phone || user.phone || undefined,
+          avatarUrl: instructorEntityResult?.avatarUrl || undefined,
+          affiliation: instructorEntityResult?.affiliation || undefined,
+          tagline: instructorEntityResult?.tagline || undefined,
+          awards: instructorEntityResult?.awards?.join(", ") || undefined,
+          bio: instructorEntityResult?.bio || undefined,
+          specialties: instructorEntityResult?.specialties?.join(", ") || undefined,
+          degrees: instructorEntityResult?.degrees || [],
+          careers: instructorEntityResult?.careers || [],
+          publications: instructorEntityResult?.publications || [],
+          certifications: instructorEntityResult?.certifications || [],
+        });
+      } catch {
+        if (!cancelled) {
+          instructorForm.setFieldsValue({
+            name: user.name,
+            avatarUrl: user.avatarUrl || undefined,
+            degrees: [],
+            careers: [],
+            publications: [],
+            certifications: [],
+          });
+          instructorDetailForm.setFieldsValue({
+            userId: user.id,
+            name: user.name,
+            email: user.email,
+            phone: user.phone || undefined,
+            avatarUrl: undefined,
+            tagline: undefined,
+            awards: undefined,
+            degrees: [],
+            careers: [],
+            publications: [],
+            certifications: [],
+          });
+          message.error("강사 프로필 정보를 불러오지 못했습니다.");
+        }
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    accessToken,
+    user?.id,
+    user?.name,
+    user?.email,
+    user?.phone,
+    user?.website,
+    user?.avatarUrl,
+    instructorForm,
+    instructorDetailForm,
+  ]);
+
+  useEffect(() => {
+    if (!user) return;
+    nameForm.setFieldsValue({
+      name: user.name,
+      phone: user.phone || undefined,
+      website: user.website || undefined,
+      avatarUrl: user.avatarUrl || undefined,
+    });
+  }, [nameForm, user?.name, user?.phone, user?.website, user?.avatarUrl]);
+
+  useEffect(() => {
+    if (!accessToken || !user || user.role !== "instructor") return;
+    let cancelled = false;
+    const loadTemplates = async () => {
+      try {
+        const templateResult = (await api.templateList(
+          1,
+          50,
+          "instructor_profile",
+          accessToken,
+        )) as { items: { id: string; name: string }[] };
+        if (cancelled) return;
+        setTemplates(templateResult?.items || []);
+      } catch {
+        if (!cancelled) {
+          message.error("내보내기 템플릿을 불러오지 못했습니다.");
+        }
+      }
+    };
+    void loadTemplates();
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, user?.role]);
   if (!user || !accessToken) {
     return (
       <Card>
@@ -468,146 +619,6 @@ export default function ProfilePage() {
     viewer: { color: "default", text: "사용자" },
     guest: { color: "gray", text: "게스트" },
   };
-
-  useEffect(() => {
-    if (!accessToken) return;
-    let cancelled = false;
-    const load = async () => {
-      try {
-        const profileResult = (await api.getInstructorProfile(
-          accessToken,
-        )) as InstructorProfileData | null;
-        let fallbackInstructor: InstructorDataFallback | null = null;
-        if (
-          profileResult &&
-          !profileResult.title &&
-          !profileResult.bio &&
-          !profileResult.phone
-        ) {
-          try {
-            fallbackInstructor = (await api.instructorGetByUser(
-              accessToken,
-            )) as InstructorDataFallback;
-          } catch {
-            fallbackInstructor = null;
-          }
-        }
-        let instructorEntityResult: InstructorEntityData | null = null;
-        try {
-          instructorEntityResult = (await api.instructorGetByUser(
-            accessToken,
-          )) as InstructorEntityData;
-        } catch {
-          instructorEntityResult = null;
-        }
-        if (cancelled) return;
-        setInstructorProfile(profileResult);
-        setProfileId(profileResult?.id || null);
-        setInstructorEntity(instructorEntityResult);
-        instructorForm.setFieldsValue({
-          name: profileResult?.displayName || user.name,
-          title: profileResult?.title || fallbackInstructor?.title || undefined,
-          bio: profileResult?.bio || fallbackInstructor?.bio || undefined,
-          phone: user.phone || profileResult?.phone || fallbackInstructor?.phone || undefined,
-          website: user.website || profileResult?.website || undefined,
-          linksText: profileResult?.links
-            ? JSON.stringify(profileResult.links, null, 2)
-            : fallbackInstructor?.links
-            ? JSON.stringify(fallbackInstructor.links, null, 2)
-            : undefined,
-          degrees: profileResult?.degrees || [],
-          careers: profileResult?.careers || [],
-          publications: profileResult?.publications || [],
-          certifications: profileResult?.certifications || [],
-          specialtiesText: profileResult?.specialties?.join(", ") || undefined,
-          affiliation: profileResult?.affiliation || undefined,
-          email: profileResult?.email || user.email || undefined,
-          avatarUrl: user.avatarUrl || undefined,
-        });
-        instructorDetailForm.setFieldsValue({
-          id: instructorEntityResult?.id,
-          userId: instructorEntityResult?.userId || user.id,
-          name: instructorEntityResult?.name || user.name,
-          title: instructorEntityResult?.title || undefined,
-          email: instructorEntityResult?.email || user.email,
-          phone: instructorEntityResult?.phone || user.phone || undefined,
-          avatarUrl: instructorEntityResult?.avatarUrl || undefined,
-          affiliation: instructorEntityResult?.affiliation || undefined,
-          tagline: instructorEntityResult?.tagline || undefined,
-          awards: instructorEntityResult?.awards?.join(", ") || undefined,
-          bio: instructorEntityResult?.bio || undefined,
-          specialties: instructorEntityResult?.specialties?.join(", ") || undefined,
-          degrees: instructorEntityResult?.degrees || [],
-          careers: instructorEntityResult?.careers || [],
-          publications: instructorEntityResult?.publications || [],
-          certifications: instructorEntityResult?.certifications || [],
-        });
-      } catch (error) {
-        if (!cancelled) {
-          instructorForm.setFieldsValue({
-            name: user.name,
-            avatarUrl: user.avatarUrl || undefined,
-            degrees: [],
-            careers: [],
-            publications: [],
-            certifications: [],
-          });
-          instructorDetailForm.setFieldsValue({
-            userId: user.id,
-            name: user.name,
-            email: user.email,
-            phone: user.phone || undefined,
-            avatarUrl: undefined,
-            tagline: undefined,
-            awards: undefined,
-            degrees: [],
-            careers: [],
-            publications: [],
-            certifications: [],
-          });
-          message.error("강사 프로필 정보를 불러오지 못했습니다.");
-        }
-      }
-    };
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [accessToken, user.name, user.email, user.phone, user.website, instructorForm, instructorDetailForm, user.id]);
-
-  useEffect(() => {
-    nameForm.setFieldsValue({
-      name: user.name,
-      phone: user.phone || undefined,
-      website: user.website || undefined,
-      avatarUrl: user.avatarUrl || undefined,
-    });
-  }, [nameForm, user.name, user.phone, user.website, user.avatarUrl]);
-
-  useEffect(() => {
-    if (!accessToken || user?.role !== "instructor") return;
-    let cancelled = false;
-    const loadTemplates = async () => {
-      try {
-        const templateResult = (await api.templateList(
-          1,
-          50,
-          "instructor_profile",
-          accessToken,
-        )) as { items: { id: string; name: string }[] };
-        if (cancelled) return;
-        setTemplates(templateResult?.items || []);
-      } catch {
-        if (!cancelled) {
-          message.error("내보내기 템플릿을 불러오지 못했습니다.");
-        }
-      }
-    };
-    loadTemplates();
-    return () => {
-      cancelled = true;
-    };
-  }, [accessToken, user?.role]);
 
   const handleExportProfile = async (values: { templateId: string; label?: string }) => {
     if (!accessToken) {

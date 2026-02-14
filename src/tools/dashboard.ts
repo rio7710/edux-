@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { verifyToken } from "../services/jwt.js";
 import { prisma } from "../services/prisma.js";
-import { evaluatePermission } from "../services/authorization.js";
+import { evaluatePermission, requirePermission } from "../services/authorization.js";
+import { errorResult } from "../services/toolResponse.js";
 
 export const dashboardBootstrapSchema = {
   token: z.string().describe("액세스 토큰"),
@@ -55,6 +56,11 @@ async function canUser(token: string, permissionKey: string): Promise<boolean> {
 
 export async function dashboardBootstrapHandler(args: { token: string }) {
   try {
+    await requirePermission(
+      args.token,
+      "dashboard.read",
+      "대시보드 조회 권한이 없습니다.",
+    );
     const actor = await verifyActiveUser(args.token);
     const [canCourseList, canCourseListMine, canInstructorList, canTemplateList] =
       await Promise.all([
@@ -190,10 +196,6 @@ export async function dashboardBootstrapHandler(args: { token: string }) {
         isError: true,
       };
     }
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return {
-      content: [{ type: "text" as const, text: `대시보드 초기 데이터 조회 실패: ${message}` }],
-      isError: true,
-    };
+    return errorResult("대시보드 초기 데이터 조회 실패", error);
   }
 }

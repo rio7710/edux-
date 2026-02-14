@@ -16,7 +16,7 @@ import {
 } from '@ant-design/icons';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { api } from '../api/mcpClient';
+import { api, mcpClient } from '../api/mcpClient';
 import { useSitePermissions } from '../hooks/useSitePermissions';
 import {
   clearClientErrorReports,
@@ -572,8 +572,17 @@ export default function Layout() {
     }
 
     let cancelled = false;
+    let lastAttemptAt = 0;
+    let lastFailedAt = 0;
     const loadUnreadCount = async () => {
+      const now = Date.now();
+      if (now - lastAttemptAt < 1000) return;
+      if (now - lastFailedAt < 5000) return;
+      lastAttemptAt = now;
       try {
+        if (!mcpClient.isConnected()) {
+          await mcpClient.connect();
+        }
         const result = (await api.messageUnreadSummary({ token: accessToken })) as {
           total?: number;
         };
@@ -582,6 +591,7 @@ export default function Layout() {
         setUnreadMessageCount(nextCount);
         setMessageLampBlinking(nextCount > 0);
       } catch {
+        lastFailedAt = Date.now();
         if (cancelled) return;
       }
     };
@@ -819,7 +829,7 @@ export default function Layout() {
         placement="left"
         open={mobileMenuOpen}
         onClose={() => setMobileMenuOpen(false)}
-        bodyStyle={{ padding: 0 }}
+        styles={{ body: { padding: 0 } }}
       >
         <Menu
           mode="inline"

@@ -3,6 +3,7 @@ import { prisma } from '../services/prisma.js';
 import Handlebars from 'handlebars';
 import { verifyToken } from '../services/jwt.js';
 import { requirePermission } from '../services/authorization.js';
+import { errorResult } from '../services/toolResponse.js';
 
 Handlebars.registerHelper('plus1', (val: number) => val + 1);
 
@@ -107,11 +108,7 @@ export async function templateCreateHandler(args: {
       content: [{ type: 'text' as const, text: JSON.stringify({ id: template.id, name: template.name }) }],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    return {
-      content: [{ type: 'text' as const, text: `Failed to create template: ${message}` }],
-      isError: true,
-    };
+    return errorResult('템플릿 생성 실패', error);
   }
 }
 
@@ -189,11 +186,7 @@ export async function templateUpsertHandler(args: {
       content: [{ type: 'text' as const, text: JSON.stringify({ id: updated.id, name: updated.name }) }],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    return {
-      content: [{ type: 'text' as const, text: `Failed to upsert template: ${message}` }],
-      isError: true,
-    };
+    return errorResult('템플릿 저장 실패', error);
   }
 }
 
@@ -228,11 +221,7 @@ export async function templateGetHandler(args: { id: string; token: string }) {
       content: [{ type: 'text' as const, text: JSON.stringify(enrichedTemplate) }],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    return {
-      content: [{ type: 'text' as const, text: `Failed to get template: ${message}` }],
-      isError: true,
-    };
+    return errorResult('템플릿 조회 실패', error);
   }
 }
 
@@ -275,11 +264,7 @@ export async function templateListHandler(args: {
       content: [{ type: 'text' as const, text: JSON.stringify({ items, total }) }],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    return {
-      content: [{ type: 'text' as const, text: `Failed to list templates: ${message}` }],
-      isError: true,
-    };
+    return errorResult('템플릿 목록 조회 실패', error);
   }
 }
 
@@ -308,11 +293,7 @@ export async function templatePreviewHtmlHandler(args: {
       content: [{ type: 'text' as const, text: fullHtml }],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    return {
-      content: [{ type: 'text' as const, text: `Failed to preview HTML: ${message}` }],
-      isError: true,
-    };
+    return errorResult('템플릿 미리보기 실패', error);
   }
 }
 
@@ -338,10 +319,6 @@ export async function templateDeleteHandler(args: { id: string; token: string })
       content: [{ type: 'text' as const, text: JSON.stringify({ id: args.id }) }],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    return {
-      content: [{ type: 'text' as const, text: `Failed to delete template: ${message}` }],
-      isError: true,
-    };
+    return errorResult('템플릿 삭제 실패', error);
   }
 }

@@ -6,6 +6,7 @@ import { useAuth } from "../contexts/AuthContext";
 
 export default function McpRequestMonitor() {
   const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const location = useLocation();
   const [stats, setStats] = useState<McpRequestStats>(mcpClient.getRequestStats());
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -13,18 +14,16 @@ export default function McpRequestMonitor() {
   const lastCompletionRef = useRef<{ count: number; at: number } | null>(null);
   const alertedCompletionCountRef = useRef(0);
 
-  if (user?.role !== "admin") {
-    return null;
-  }
-
   useEffect(() => {
+    if (!isAdmin) return;
     const timer = window.setInterval(() => {
       setNowMs(Date.now());
     }, 200);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [isAdmin]);
 
   useEffect(() => {
+    if (!isAdmin) return;
     return mcpClient.onRequestStatsChange((next) => {
       setStats(next);
 
@@ -46,15 +45,16 @@ export default function McpRequestMonitor() {
         );
       }
     });
-  }, []);
+  }, [isAdmin]);
 
   useEffect(() => {
+    if (!isAdmin) return;
     const last = lastCompletionRef.current;
     if (!last) return;
     const movedSoon = Date.now() - last.at < 1500;
     if (!movedSoon) return;
     message.warning("직전 페이지 통신 완료 알림을 놓쳤을 수 있습니다.", 2);
-  }, [location.pathname, location.search]);
+  }, [isAdmin, location.pathname, location.search]);
 
   const activeCount = useMemo(
     () => stats.pendingCount + (stats.connecting ? 1 : 0),
@@ -71,6 +71,10 @@ export default function McpRequestMonitor() {
     if (!activeStartedAt) return null;
     return Math.max(0, nowMs - activeStartedAt);
   }, [activeStartedAt, nowMs]);
+
+  if (!isAdmin) {
+    return null;
+  }
 
   return (
     <div
