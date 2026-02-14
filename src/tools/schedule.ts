@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { verifyToken } from "../services/jwt.js";
 import { prisma } from "../services/prisma.js";
@@ -47,6 +48,7 @@ export const scheduleUpsertSchema = {
 
 export const scheduleGetSchema = {
   id: z.string().describe("일정 ID"),
+  token: z.string().describe("인증 토큰"),
 };
 
 export const scheduleListSchema = {
@@ -58,6 +60,7 @@ export const scheduleListSchema = {
     .optional()
     .describe("최대 조회 개수 (기본 50)"),
   offset: z.number().int().min(0).optional().describe("오프셋 (기본 0)"),
+  token: z.string().describe("인증 토큰"),
 };
 
 // 핸들러 정의
@@ -99,7 +102,7 @@ export async function scheduleUpsertHandler(args: {
       };
     }
 
-    const scheduleId = args.id || `s_${Date.now()}`;
+    const scheduleId = args.id || `s_${randomUUID()}`;
     const scheduleDate = args.date ? new Date(args.date) : undefined;
 
     // Validate courseId and instructorId existence
@@ -194,8 +197,17 @@ export async function scheduleUpsertHandler(args: {
   }
 }
 
-export async function scheduleGetHandler(args: { id: string }) {
+export async function scheduleGetHandler(args: { id: string; token: string }) {
   try {
+    try {
+      verifyToken(args.token);
+    } catch {
+      return {
+        content: [{ type: "text" as const, text: "인증 실패" }],
+        isError: true,
+      };
+    }
+
     const schedule = await prisma.courseSchedule.findUnique({
       where: { id: args.id, deletedAt: null },
       include: {
@@ -242,8 +254,18 @@ export async function scheduleGetHandler(args: { id: string }) {
 export async function scheduleListHandler(args: {
   limit?: number;
   offset?: number;
+  token: string;
 }) {
   try {
+    try {
+      verifyToken(args.token);
+    } catch {
+      return {
+        content: [{ type: "text" as const, text: "인증 실패" }],
+        isError: true,
+      };
+    }
+
     const limit = args.limit || 50;
     const offset = args.offset || 0;
 

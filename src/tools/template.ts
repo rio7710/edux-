@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { prisma } from '../services/prisma.js';
 import Handlebars from 'handlebars';
 import { verifyToken } from '../services/jwt.js';
+import { requirePermission } from '../services/authorization.js';
 
 Handlebars.registerHelper('plus1', (val: number) => val + 1);
 
@@ -32,17 +33,19 @@ export const templateCreateSchema = {
   type: z.string().describe('템플릿 타입 (instructor_profile | course_intro 등)'),
   html: z.string().describe('Handlebars 템플릿 HTML'),
   css: z.string().describe('템플릿 CSS'),
-  token: z.string().optional().describe('인증 토큰 (등록자 추적용)'),
+  token: z.string().describe('인증 토큰'),
 };
 
 export const templateGetSchema = {
   id: z.string().describe('템플릿 ID'),
+  token: z.string().describe('인증 토큰'),
 };
 
 export const templateListSchema = {
   page: z.number().int().min(1).default(1).describe('페이지 번호'),
   pageSize: z.number().int().min(1).max(100).default(20).describe('페이지당 항목 수'),
   type: z.string().optional().describe('템플릿 타입 필터'),
+  token: z.string().describe('인증 토큰'),
 };
 
 export const templatePreviewHtmlSchema = {
@@ -53,7 +56,7 @@ export const templatePreviewHtmlSchema = {
 
 export const templateDeleteSchema = {
   id: z.string().describe('템플릿 ID'),
-  token: z.string().optional().describe('인증 토큰 (관리자/운영자 권한 확인용)'),
+  token: z.string().describe('인증 토큰'),
 };
 
 export const templateUpsertSchema = {
@@ -63,7 +66,7 @@ export const templateUpsertSchema = {
   html: z.string().describe('Handlebars 템플릿 HTML'),
   css: z.string().describe('템플릿 CSS'),
   changelog: z.string().optional().describe('변경 로그'),
-  token: z.string().optional().describe('인증 토큰 (등록자 추적용)'),
+  token: z.string().describe('인증 토큰'),
 };
 
 // 핸들러 정의
@@ -72,19 +75,15 @@ export async function templateCreateHandler(args: {
   type: string;
   html: string;
   css: string;
-  token?: string;
+  token: string;
 }) {
   try {
-    // 토큰에서 사용자 ID 추출
-    let createdBy: string | undefined;
-    if (args.token) {
-      try {
-        const payload = verifyToken(args.token);
-        createdBy = payload.userId;
-      } catch {
-        // 토큰 검증 실패시 무시
-      }
-    }
+    const actor = await requirePermission(
+      args.token,
+      'template.update',
+      '템플릿 생성/수정 권한이 필요합니다.',
+    );
+    const createdBy = actor.id;
 
     const template = await prisma.template.create({
       data: {
@@ -123,18 +122,15 @@ export async function templateUpsertHandler(args: {
   html: string;
   css: string;
   changelog?: string;
-  token?: string;
+  token: string;
 }) {
   try {
-    let createdBy: string | undefined;
-    if (args.token) {
-      try {
-        const payload = verifyToken(args.token);
-        createdBy = payload.userId;
-      } catch {
-        // ignore token errors
-      }
-    }
+    const actor = await requirePermission(
+      args.token,
+      'template.update',
+      '템플릿 생성/수정 권한이 필요합니다.',
+    );
+    const createdBy = actor.id;
 
     if (!args.id) {
       const template = await prisma.template.create({
@@ -159,8 +155,8 @@ export async function templateUpsertHandler(args: {
       };
     }
 
-    const existing = await prisma.template.findUnique({
-      where: { id: args.id },
+    const existing = await prisma.template.findFirst({
+      where: { id: args.id, deletedAt: null },
       include: { Versions: { orderBy: { version: 'desc' }, take: 1 } },
     });
     if (!existing) {
@@ -201,10 +197,19 @@ export async function templateUpsertHandler(args: {
   }
 }
 
-export async function templateGetHandler(args: { id: string }) {
+export async function templateGetHandler(args: { id: string; token: string }) {
   try {
-    const template = await prisma.template.findUnique({
-      where: { id: args.id },
+    try {
+      verifyToken(args.token);
+    } catch {
+      return {
+        content: [{ type: 'text' as const, text: '인증 실패' }],
+        isError: true,
+      };
+    }
+
+    const template = await prisma.template.findFirst({
+      where: { id: args.id, deletedAt: null },
       include: {
         Versions: { orderBy: { version: 'desc' } }, // 최신 버전부터 조회
       },
@@ -235,11 +240,24 @@ export async function templateListHandler(args: {
   page: number;
   pageSize: number;
   type?: string;
+  token: string;
 }) {
   try {
+    try {
+      verifyToken(args.token);
+    } catch {
+      return {
+        content: [{ type: 'text' as const, text: '인증 실패' }],
+        isError: true,
+      };
+    }
+
     const skip = (args.page - 1) * args.pageSize;
     const take = args.pageSize;
-    const where = args.type ? { type: args.type } : undefined;
+    const where = {
+      deletedAt: null as Date | null,
+      ...(args.type ? { type: args.type } : {}),
+    };
 
     const [rawTemplates, total] = await prisma.$transaction([
       prisma.template.findMany({
@@ -298,23 +316,24 @@ export async function templatePreviewHtmlHandler(args: {
   }
 }
 
-export async function templateDeleteHandler(args: { id: string; token?: string }) {
+export async function templateDeleteHandler(args: { id: string; token: string }) {
   try {
-    if (!args.token) {
-      return {
-        content: [{ type: 'text' as const, text: '권한이 없습니다.' }],
-        isError: true,
-      };
-    }
-    const payload = verifyToken(args.token);
-    if (payload.role !== 'admin' && payload.role !== 'operator') {
-      return {
-        content: [{ type: 'text' as const, text: '관리자/운영자만 삭제할 수 있습니다.' }],
-        isError: true,
-      };
-    }
+    await requirePermission(
+      args.token,
+      'template.delete',
+      '템플릿 삭제 권한이 필요합니다.',
+    );
 
-    await prisma.template.delete({ where: { id: args.id } });
+    const deleted = await prisma.template.updateMany({
+      where: { id: args.id, deletedAt: null },
+      data: { deletedAt: new Date() },
+    });
+    if (deleted.count === 0) {
+      return {
+        content: [{ type: 'text' as const, text: `Template not found: ${args.id}` }],
+        isError: true,
+      };
+    }
     return {
       content: [{ type: 'text' as const, text: JSON.stringify({ id: args.id }) }],
     };

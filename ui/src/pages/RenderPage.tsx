@@ -28,7 +28,7 @@ export default function RenderPage() {
 
   const renderCourseMutation = useMutation({
     mutationFn: ({ templateId, courseId, label }: { templateId: string; courseId: string; label?: string }) =>
-      api.renderCoursePdf({ token: accessToken || '', templateId, courseId, label }),
+      api.renderCoursePdf({ token: accessToken!, templateId, courseId, label }),
     onSuccess: (result: unknown) => {
       const data = result as RenderResult;
       setRenderResult(data);
@@ -41,7 +41,7 @@ export default function RenderPage() {
 
   const renderScheduleMutation = useMutation({
     mutationFn: ({ templateId, scheduleId, label }: { templateId: string; scheduleId: string; label?: string }) =>
-      api.renderSchedulePdf({ token: accessToken || '', templateId, scheduleId, label }),
+      api.renderSchedulePdf({ token: accessToken!, templateId, scheduleId, label }),
     onSuccess: (result: unknown) => {
       const data = result as RenderResult;
       setRenderResult(data);
@@ -54,7 +54,7 @@ export default function RenderPage() {
 
   const renderProfileMutation = useMutation({
     mutationFn: ({ templateId, profileId, label }: { templateId: string; profileId: string; label?: string }) =>
-      api.renderInstructorProfilePdf({ token: accessToken || '', templateId, profileId, label }),
+      api.renderInstructorProfilePdf({ token: accessToken!, templateId, profileId, label }),
     onSuccess: (result: unknown) => {
       const data = result as RenderResult;
       setRenderResult(data);

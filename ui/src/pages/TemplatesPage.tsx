@@ -9,16 +9,20 @@ import {
   Space,
   Tabs,
   Select,
+  Tooltip,
+  Result,
 } from 'antd';
 import type { ColumnType } from 'antd/es/table';
-import { PlusOutlined, EyeOutlined, DeleteOutlined } from '@ant-design/icons';
+import { PlusOutlined, EyeOutlined, DeleteOutlined, SettingOutlined } from '@ant-design/icons';
 import { useMutation } from '@tanstack/react-query';
 import { api } from '../api/mcpClient';
 import { useAuth } from '../contexts/AuthContext';
+import { useSitePermissions } from '../hooks/useSitePermissions';
 import { useTableConfig } from '../hooks/useTableConfig';
 import { buildColumns, NO_COLUMN_KEY } from '../utils/tableConfig';
 import { DEFAULT_COLUMNS } from '../utils/tableDefaults';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { isAuthErrorMessage, parseMcpError } from '../utils/error';
 
 interface Template {
   id: string;
@@ -39,6 +43,7 @@ const defaultHtml = `<div class="course-plan">
   <p>{{course.goal}}</p>
 
   <h2>교육 내용</h2>
+  <p>{{course.content}}</p>
   <ul>
     {{#each modules}}
     <li>{{this.title}} ({{this.hours}}시간)</li>
@@ -109,6 +114,10 @@ export default function TemplatesPage({
     [],
   );
   const draftPromptOpenRef = useRef(false);
+  const { canAccessMenu, canUseFeature } = useSitePermissions(user?.role);
+  const canAccessTemplatesMenu = canAccessMenu('templates');
+  const canUpsertTemplateBySite = canUseFeature('templates', 'template.upsert');
+  const canDeleteTemplateBySite = canUseFeature('templates', 'template.delete');
 
   const draftKey = useMemo(() => {
     if (templateType) return `draft:template:${templateType}`;
@@ -142,11 +151,7 @@ export default function TemplatesPage({
     localStorage.removeItem(draftKey);
   };
 
-  const isAuthError = (messageText: string) => {
-    return /인증|토큰|로그인|권한|세션|MCP 연결 시간이 초과되었습니다|요청 시간이 초과되었습니다/.test(
-      messageText,
-    );
-  };
+  const isAuthError = (messageText: string) => isAuthErrorMessage(messageText);
 
   const handleSessionExpired = (reason?: string) => {
     saveDraft();
@@ -167,7 +172,7 @@ export default function TemplatesPage({
 
   const saveMutation = useMutation({
     mutationFn: (data: { id?: string; name: string; type: string; html: string; css: string }) =>
-      api.templateUpsert({ ...data, token: accessToken || undefined }),
+      api.templateUpsert({ ...data, token: accessToken || '' }),
     onSuccess: () => {
       message.success(editingTemplateId ? '템플릿이 수정되었습니다' : '템플릿이 저장되었습니다');
       setIsModalOpen(false);
@@ -181,12 +186,17 @@ export default function TemplatesPage({
         handleSessionExpired(error.message);
         return;
       }
-      message.error(`저장 실패: ${error.message}`);
+      message.error(`저장 실패: ${parseMcpError(error.message)}`);
     },
   });
 
   const listMutation = useMutation({
-    mutationFn: () => api.templateList(1, 50, templateType),
+    mutationFn: () => {
+      if (!accessToken) {
+        throw new Error('인증이 필요합니다.');
+      }
+      return api.templateList(1, 50, templateType, accessToken);
+    },
     onSuccess: (result: unknown) => {
       const data = result as { items: Template[]; total: number };
       setTemplates(data.items || []);
@@ -248,8 +258,13 @@ export default function TemplatesPage({
   });
 
   useEffect(() => {
+    if (!accessToken) {
+      setTemplates([]);
+      return;
+    }
     listMutation.mutate();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accessToken, templateType]);
 
   useEffect(() => {
     const handler = () => {
@@ -274,11 +289,22 @@ export default function TemplatesPage({
     setTabPreviewHtml('');
   }, [location.search, templateType]);
 
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get('create') !== '1') return;
+    handleCreate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.search]);
+
   const handleTabChange = async (key: string) => {
     if (key !== 'preview') return;
     const html = form.getFieldValue('html');
     const css = form.getFieldValue('css');
     if (!html || !css) return;
+    if (!accessToken) {
+      message.warning('로그인 후 이용해주세요.');
+      return;
+    }
 
     const currentType = templateType || form.getFieldValue('type');
 
@@ -287,14 +313,15 @@ export default function TemplatesPage({
 
       if (currentType === 'course_intro') {
         // DB에서 [샘플] 과정 조회
-        const listResult = await api.courseList(50, 0, accessToken || undefined) as any;
+        const listResult = await api.courseList(50, 0, accessToken) as any;
         const sampleCourse = (listResult.courses || []).find(
           (c: any) => c.title?.startsWith(SAMPLE_COURSE_PREFIX)
         );
         if (sampleCourse) {
-          const course = await api.courseGet(sampleCourse.id, accessToken || undefined) as any;
+          const course = await api.courseGet(sampleCourse.id, accessToken) as any;
           data = {
             course,
+            content: course.content || '',
             instructors: course.Instructors || [],
             lectures: course.Lectures || [],
             modules: course.Lectures || [],
@@ -327,6 +354,10 @@ export default function TemplatesPage({
   };
 
   const handleCreate = () => {
+    if (!canUpsertTemplateBySite) {
+      message.warning('사이트 권한 설정에 따라 템플릿 등록/수정 기능이 비활성화되었습니다.');
+      return;
+    }
     if (!accessToken) {
       message.warning('로그인 후 이용해주세요.');
       return;
@@ -387,6 +418,10 @@ export default function TemplatesPage({
   };
 
   const handleSubmit = async () => {
+    if (!canUpsertTemplateBySite) {
+      message.warning('사이트 권한 설정에 따라 템플릿 등록/수정 기능이 비활성화되었습니다.');
+      return;
+    }
     if (!accessToken) {
       message.warning('로그인 후 이용해주세요.');
       return;
@@ -406,6 +441,10 @@ export default function TemplatesPage({
   });
 
   const handlePreview = () => {
+    if (!accessToken) {
+      message.warning('로그인 후 이용해주세요.');
+      return;
+    }
     const values = getFormValues();
     const currentType = templateType || values.type;
     if (!currentType) {
@@ -415,7 +454,7 @@ export default function TemplatesPage({
 
     if (currentType === 'course_intro') {
       if (courses.length === 0) {
-        api.courseList(50, 0, accessToken || undefined).then((result) => {
+        api.courseList(50, 0, accessToken).then((result) => {
           const data = result as { courses: { id: string; title: string }[] };
           setCourses(data.courses || []);
         }).catch((error: Error) => {
@@ -482,6 +521,10 @@ export default function TemplatesPage({
   };
 
   const handleConfirmPreviewTarget = async () => {
+    if (!accessToken) {
+      message.warning('로그인 후 이용해주세요.');
+      return;
+    }
     const values = getFormValues();
     const currentType = templateType || values.type;
     if (!currentType || !previewTargetId) {
@@ -491,9 +534,10 @@ export default function TemplatesPage({
 
     if (currentType === 'course_intro') {
       try {
-        const course = (await api.courseGet(previewTargetId, accessToken || undefined)) as any;
+        const course = (await api.courseGet(previewTargetId, accessToken)) as any;
         const data = {
           course,
+          content: course.content || '',
           instructors: course.Instructors || [],
           lectures: course.Lectures || [],
           modules: course.Lectures || [],
@@ -606,7 +650,12 @@ export default function TemplatesPage({
             danger
             icon={<DeleteOutlined />}
             size="small"
+            disabled={!canDeleteTemplateBySite}
             onClick={() => {
+              if (!canDeleteTemplateBySite) {
+                message.warning('사이트 권한 설정에 따라 템플릿 삭제 기능이 비활성화되었습니다.');
+                return;
+              }
               if (!accessToken) {
                 message.warning('로그인 후 이용해주세요.');
                 return;
@@ -639,11 +688,34 @@ export default function TemplatesPage({
   };
   const columns = buildColumns<Template>(columnConfigs, columnMap);
 
+  if (!canAccessTemplatesMenu) {
+    return (
+      <Result
+        status="403"
+        title="메뉴 비활성화"
+        subTitle="사이트 관리의 권한관리에서 템플릿 관리 메뉴가 비활성화되었습니다."
+      />
+    );
+  }
+
   return (
     <div>
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between' }}>
+      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <h2 style={{ margin: 0 }}>{title}</h2>
+          <Space size={8} align="center">
+            <h2 style={{ margin: 0 }}>{title}</h2>
+            {user?.role === 'admin' && (
+              <Tooltip title="목차 설정으로 이동">
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<SettingOutlined />}
+                  onClick={() => navigate('/admin/site-settings?tab=outline&tableKey=templates')}
+                  style={{ padding: 4 }}
+                />
+              </Tooltip>
+            )}
+          </Space>
           {description && (
             <div style={{ color: '#666', marginTop: 4 }}>{description}</div>
           )}
@@ -652,7 +724,12 @@ export default function TemplatesPage({
           <Button onClick={() => listMutation.mutate()} loading={listMutation.isPending}>
             새로고침
           </Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={handleCreate}
+            disabled={!canUpsertTemplateBySite}
+          >
             새 템플릿
           </Button>
         </Space>

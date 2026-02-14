@@ -1,5 +1,9 @@
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import type { Prisma } from "@prisma/client";
 import { verifyToken } from "../services/jwt.js";
+import { evaluatePermission } from "../services/authorization.js";
+import { createUserMessage } from "../services/message.js";
 import { prisma } from "../services/prisma.js";
 
 // createdBy ID를 사용자 이름으로 변환하는 헬퍼 함수
@@ -34,6 +38,7 @@ export const courseUpsertSchema = {
   isOnline: z.boolean().optional().nullable(),
   equipment: z.array(z.string()).optional().nullable(),
   goal: z.string().optional().nullable(),
+  content: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
   instructorIds: z.array(z.string()).optional().nullable(),
   token: z.string().optional().describe("인증 토큰 (등록자 추적용)"),
@@ -41,7 +46,7 @@ export const courseUpsertSchema = {
 
 export const courseGetSchema = {
   id: z.string().describe("코스 ID"),
-  token: z.string().optional().describe("액세스 토큰 (본인/공유 필터)"),
+  token: z.string().describe("액세스 토큰"),
 };
 
 export const courseListSchema = {
@@ -53,7 +58,24 @@ export const courseListSchema = {
     .optional()
     .describe("최대 조회 개수 (기본 50)"),
   offset: z.number().int().min(0).optional().describe("오프셋 (기본 0)"),
-  token: z.string().optional().describe("액세스 토큰 (본인/공유 필터)"),
+  token: z.string().describe("액세스 토큰"),
+};
+
+export const courseListMineSchema = {
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(100)
+    .optional()
+    .describe("최대 조회 개수 (기본 50)"),
+  offset: z.number().int().min(0).optional().describe("오프셋 (기본 0)"),
+  token: z.string().describe("액세스 토큰"),
+};
+
+export const courseDeleteSchema = {
+  id: z.string().describe("코스 ID"),
+  token: z.string().describe("액세스 토큰"),
 };
 
 export const courseShareInviteSchema = {
@@ -66,6 +88,7 @@ export const courseShareRespondSchema = {
   token: z.string().describe("액세스 토큰"),
   courseId: z.string().describe("응답할 코스 ID"),
   accept: z.boolean().describe("수락 여부 (true=수락, false=거절)"),
+  reason: z.string().max(500).optional().describe("거절/해제 사유"),
 };
 
 export const courseShareListReceivedSchema = {
@@ -85,6 +108,11 @@ export const courseShareRevokeSchema = {
   token: z.string().describe("액세스 토큰"),
   courseId: z.string().describe("코스 ID"),
   targetUserId: z.string().describe("공유 해제 대상 사용자 ID"),
+};
+
+export const courseShareLeaveSchema = {
+  token: z.string().describe("액세스 토큰"),
+  courseId: z.string().describe("공유 해제할 코스 ID (수신자 본인 기준)"),
 };
 
 export const courseShareTargetsSchema = {
@@ -125,6 +153,162 @@ function canManageCourseByRole(
   return !!actorUserId && !!ownerUserId && actorUserId === ownerUserId;
 }
 
+type Tx = Prisma.TransactionClient;
+
+const AUTO_COURSE_SHARE_GRANT = {
+  canMap: true,
+  canEdit: false,
+  canReshare: false,
+} as const;
+
+async function getActiveCourseLectureIds(
+  tx: Tx,
+  courseId: string,
+): Promise<string[]> {
+  const links = await tx.courseLecture.findMany({
+    where: { courseId, Lecture: { deletedAt: null } },
+    select: { lectureId: true },
+  });
+  return Array.from(new Set(links.map((link) => link.lectureId)));
+}
+
+async function grantAcceptedCourseShareLectures(
+  tx: Tx,
+  args: {
+    courseId: string;
+    sharedWithUserId: string;
+    sharedByUserId: string;
+    sourceRefId: string;
+  },
+): Promise<number> {
+  const lectureIds = await getActiveCourseLectureIds(tx, args.courseId);
+  if (lectureIds.length === 0) return 0;
+
+  let syncedCount = 0;
+  for (const lectureId of lectureIds) {
+    const existing = await tx.lectureGrant.findUnique({
+      where: {
+        lectureId_userId: {
+          lectureId,
+          userId: args.sharedWithUserId,
+        },
+      },
+      select: { id: true, sourceType: true, revokedAt: true },
+    });
+
+    if (!existing) {
+      await tx.lectureGrant.create({
+        data: {
+          lectureId,
+          userId: args.sharedWithUserId,
+          grantedByUserId: args.sharedByUserId,
+          sourceType: "course_share",
+          sourceRefId: args.sourceRefId,
+          canMap: AUTO_COURSE_SHARE_GRANT.canMap,
+          canEdit: AUTO_COURSE_SHARE_GRANT.canEdit,
+          canReshare: AUTO_COURSE_SHARE_GRANT.canReshare,
+        },
+      });
+      syncedCount += 1;
+      continue;
+    }
+
+    // Explicit manual grants stay authoritative to avoid accidental clobbering.
+    if (existing.sourceType === "manual" && existing.revokedAt === null) {
+      continue;
+    }
+
+    await tx.lectureGrant.update({
+      where: { id: existing.id },
+      data: {
+        grantedByUserId: args.sharedByUserId,
+        sourceType: "course_share",
+        sourceRefId: args.sourceRefId,
+        canMap: AUTO_COURSE_SHARE_GRANT.canMap,
+        canEdit: AUTO_COURSE_SHARE_GRANT.canEdit,
+        canReshare: AUTO_COURSE_SHARE_GRANT.canReshare,
+        revokedAt: null,
+      },
+    });
+    syncedCount += 1;
+  }
+
+  return syncedCount;
+}
+
+async function revokeAcceptedCourseShareLectures(
+  tx: Tx,
+  args: {
+    courseId: string;
+    sharedWithUserId: string;
+    sourceRefId: string;
+  },
+): Promise<{ revokedCount: number; reassignedCount: number }> {
+  const lectureIds = await getActiveCourseLectureIds(tx, args.courseId);
+  if (lectureIds.length === 0) return { revokedCount: 0, reassignedCount: 0 };
+
+  let revokedCount = 0;
+  let reassignedCount = 0;
+
+  for (const lectureId of lectureIds) {
+    const grant = await tx.lectureGrant.findFirst({
+      where: {
+        lectureId,
+        userId: args.sharedWithUserId,
+        sourceType: "course_share",
+        sourceRefId: args.sourceRefId,
+        canMap: AUTO_COURSE_SHARE_GRANT.canMap,
+        canEdit: AUTO_COURSE_SHARE_GRANT.canEdit,
+        canReshare: AUTO_COURSE_SHARE_GRANT.canReshare,
+        revokedAt: null,
+      },
+      select: { id: true },
+    });
+    if (!grant) continue;
+
+    const fallbackShare = await tx.courseShare.findFirst({
+      where: {
+        id: { not: args.sourceRefId },
+        sharedWithUserId: args.sharedWithUserId,
+        status: "accepted",
+        Course: {
+          deletedAt: null,
+          CourseLectures: {
+            some: { lectureId },
+          },
+        },
+      },
+      orderBy: { updatedAt: "desc" },
+      select: { id: true, sharedByUserId: true },
+    });
+
+    if (fallbackShare) {
+      await tx.lectureGrant.update({
+        where: { id: grant.id },
+        data: {
+          grantedByUserId: fallbackShare.sharedByUserId,
+          sourceType: "course_share",
+          sourceRefId: fallbackShare.id,
+          canMap: AUTO_COURSE_SHARE_GRANT.canMap,
+          canEdit: AUTO_COURSE_SHARE_GRANT.canEdit,
+          canReshare: AUTO_COURSE_SHARE_GRANT.canReshare,
+          revokedAt: null,
+        },
+      });
+      reassignedCount += 1;
+      continue;
+    }
+
+    await tx.lectureGrant.update({
+      where: { id: grant.id },
+      data: { revokedAt: new Date() },
+    });
+    revokedCount += 1;
+  }
+
+  return { revokedCount, reassignedCount };
+}
+
 // 핸들러 정의
 export async function courseUpsertHandler(args: {
   id?: string;
@@ -134,12 +318,13 @@ export async function courseUpsertHandler(args: {
   isOnline?: boolean | null;
   equipment?: string[] | null;
   goal?: string | null;
+  content?: string | null;
   notes?: string | null;
   instructorIds?: string[] | null;
   token?: string;
 }) {
   try {
-    const courseId = args.id || `c_${Date.now()}`;
+    const courseId = args.id || `c_${randomUUID()}`;
     if (!args.token) {
       return {
         content: [{ type: "text" as const, text: "인증이 필요합니다." }],
@@ -193,6 +378,7 @@ export async function courseUpsertHandler(args: {
         isOnline: args.isOnline ?? undefined,
         equipment: args.equipment ?? [],
         goal: args.goal ?? undefined,
+        content: args.content ?? undefined,
         notes: args.notes ?? undefined,
         createdBy: actorUserId,
       },
@@ -203,6 +389,7 @@ export async function courseUpsertHandler(args: {
         isOnline: args.isOnline ?? undefined,
         equipment: args.equipment ?? [],
         goal: args.goal ?? undefined,
+        content: args.content ?? undefined,
         notes: args.notes ?? undefined,
       },
     });
@@ -243,24 +430,22 @@ export async function courseUpsertHandler(args: {
 export async function courseListHandler(args: {
   limit?: number;
   offset?: number;
-  token?: string;
+  token: string;
 }) {
   try {
     const limit = args.limit || 50;
     const offset = args.offset || 0;
     let userId: string | undefined;
     let role: string | undefined;
-    if (args.token) {
-      try {
-        const payload = verifyToken(args.token);
-        userId = payload.userId;
-        role = payload.role;
-      } catch {
-        return {
-          content: [{ type: "text" as const, text: "인증 실패" }],
-          isError: true,
-        };
-      }
+    try {
+      const payload = verifyToken(args.token);
+      userId = payload.userId;
+      role = payload.role;
+    } catch {
+      return {
+        content: [{ type: "text" as const, text: "인증 실패" }],
+        isError: true,
+      };
     }
     const where = buildCourseVisibilityWhere(userId, role);
 
@@ -271,7 +456,7 @@ export async function courseListHandler(args: {
         take: limit,
         skip: offset,
         include: {
-          _count: { select: { Lectures: true, Schedules: true } },
+          _count: { select: { CourseLectures: true, Schedules: true } },
         },
       }),
       prisma.course.count({ where }),
@@ -307,21 +492,85 @@ export async function courseListHandler(args: {
   }
 }
 
-export async function courseGetHandler(args: { id: string; token?: string }) {
+export async function courseListMineHandler(args: {
+  limit?: number;
+  offset?: number;
+  token: string;
+}) {
+  try {
+    const limit = args.limit || 50;
+    const offset = args.offset || 0;
+    let userId: string | undefined;
+    try {
+      const payload = verifyToken(args.token);
+      userId = payload.userId;
+    } catch {
+      return {
+        content: [{ type: "text" as const, text: "인증 실패" }],
+        isError: true,
+      };
+    }
+    if (!userId) {
+      return {
+        content: [{ type: "text" as const, text: "인증 실패" }],
+        isError: true,
+      };
+    }
+
+    const where = {
+      deletedAt: null as null,
+      createdBy: userId,
+    };
+    const [rawCourses, total] = await Promise.all([
+      prisma.course.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        take: limit,
+        skip: offset,
+        include: {
+          _count: { select: { CourseLectures: true, Schedules: true } },
+        },
+      }),
+      prisma.course.count({ where }),
+    ]);
+    const courses = await resolveCreatorNames(rawCourses);
+    const withPermissions = courses.map((course) => ({
+      ...course,
+      canEdit: true,
+    }));
+
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: JSON.stringify({ courses: withPermissions, total, limit, offset }),
+        },
+      ],
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    return {
+      content: [
+        { type: "text" as const, text: `Failed to list my courses: ${message}` },
+      ],
+      isError: true,
+    };
+  }
+}
+
+export async function courseGetHandler(args: { id: string; token: string }) {
   try {
     let userId: string | undefined;
     let role: string | undefined;
-    if (args.token) {
-      try {
-        const payload = verifyToken(args.token);
-        userId = payload.userId;
-        role = payload.role;
-      } catch {
-        return {
-          content: [{ type: "text" as const, text: "인증 실패" }],
-          isError: true,
-        };
-      }
+    try {
+      const payload = verifyToken(args.token);
+      userId = payload.userId;
+      role = payload.role;
+    } catch {
+      return {
+        content: [{ type: "text" as const, text: "인증 실패" }],
+        isError: true,
+      };
     }
     const course = await prisma.course.findFirst({
       where: {
@@ -329,7 +578,11 @@ export async function courseGetHandler(args: { id: string; token?: string }) {
         ...buildCourseVisibilityWhere(userId, role),
       },
       include: {
-        Lectures: { where: { deletedAt: null }, orderBy: { order: "asc" } },
+        CourseLectures: {
+          where: { Lecture: { deletedAt: null } },
+          include: { Lecture: true },
+          orderBy: { order: "asc" },
+        },
         Schedules: {
           where: { deletedAt: null },
           include: { Instructor: true },
@@ -351,22 +604,29 @@ export async function courseGetHandler(args: { id: string; token?: string }) {
 
     const [enrichedCourse] = await resolveCreatorNames([course]);
 
+    const courseLectures = course.CourseLectures?.map((link) => ({
+      ...link.Lecture,
+      order: link.order,
+    })) || [];
+
     // 강의들의 등록자도 이름으로 변환
-    if (enrichedCourse.Lectures && enrichedCourse.Lectures.length > 0) {
-      enrichedCourse.Lectures = await resolveCreatorNames(
-        enrichedCourse.Lectures,
-      );
+    if (courseLectures.length > 0) {
+      const resolvedLectures = await resolveCreatorNames(courseLectures);
+      (enrichedCourse as any).Lectures = resolvedLectures;
 
       // 교육 시간 계산: 강의 목록의 시간 합계 + 기존값 괄호 표시
-      const totalLectureHours = enrichedCourse.Lectures.reduce(
+      const totalLectureHours = resolvedLectures.reduce(
         (sum, lecture) => sum + (lecture.hours || 0),
         0,
       );
       if (totalLectureHours > 0) {
         const originalDuration = enrichedCourse.durationHours || 0;
-        (enrichedCourse as any).durationHours =
+        (enrichedCourse as any).durationDisplay =
           `${totalLectureHours}(${originalDuration})`;
+        (enrichedCourse as any).durationHours = totalLectureHours;
       }
+    } else {
+      (enrichedCourse as any).Lectures = [];
     }
 
     // 일정들의 등록자와 강사 등록자도 변환
@@ -422,6 +682,102 @@ export async function courseGetHandler(args: { id: string; token?: string }) {
   }
 }
 
+export async function courseDeleteHandler(args: { id: string; token: string }) {
+  try {
+    const decision = await evaluatePermission({
+      token: args.token,
+      permissionKey: "course.delete",
+    });
+
+    const course = await prisma.course.findFirst({
+      where: { id: args.id, deletedAt: null },
+      select: { id: true, createdBy: true },
+    });
+
+    if (!course) {
+      return {
+        content: [
+          { type: "text" as const, text: `Course not found: ${args.id}` },
+        ],
+        isError: true,
+      };
+    }
+
+    const isOwner = !!course.createdBy && course.createdBy === decision.actor.id;
+    if (!decision.allowed && !isOwner) {
+      return {
+        content: [{ type: "text" as const, text: "본인 코스만 삭제할 수 있습니다." }],
+        isError: true,
+      };
+    }
+
+    const now = new Date();
+    const result = await prisma.$transaction(async (tx) => {
+      const acceptedShares = await tx.courseShare.findMany({
+        where: { courseId: args.id, status: "accepted" },
+        select: { id: true, sharedWithUserId: true },
+      });
+
+      let revokedLectureGrantCount = 0;
+      let reassignedLectureGrantCount = 0;
+      for (const share of acceptedShares) {
+        const revokeResult = await revokeAcceptedCourseShareLectures(tx, {
+          courseId: args.id,
+          sharedWithUserId: share.sharedWithUserId,
+          sourceRefId: share.id,
+        });
+        revokedLectureGrantCount += revokeResult.revokedCount;
+        reassignedLectureGrantCount += revokeResult.reassignedCount;
+      }
+
+      await tx.course.update({
+        where: { id: args.id },
+        data: { deletedAt: now },
+      });
+      await tx.courseLecture.deleteMany({
+        where: { courseId: args.id },
+      });
+      await tx.courseSchedule.updateMany({
+        where: { courseId: args.id, deletedAt: null },
+        data: { deletedAt: now },
+      });
+      await tx.courseShare.deleteMany({
+        where: { courseId: args.id },
+      });
+      await tx.courseInstructor.deleteMany({
+        where: { courseId: args.id },
+      });
+
+      return {
+        revokedLectureGrantCount,
+        reassignedLectureGrantCount,
+      };
+    });
+
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: JSON.stringify({
+            id: args.id,
+            deleted: true,
+            revokedLectureGrantCount: result.revokedLectureGrantCount,
+            reassignedLectureGrantCount: result.reassignedLectureGrantCount,
+          }),
+        },
+      ],
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    return {
+      content: [
+        { type: "text" as const, text: `Failed to delete course: ${message}` },
+      ],
+      isError: true,
+    };
+  }
+}
+
 export async function courseShareInviteHandler(args: {
   token: string;
   courseId: string;
@@ -431,7 +787,7 @@ export async function courseShareInviteHandler(args: {
     const payload = verifyToken(args.token);
     const actor = await prisma.user.findUnique({
       where: { id: payload.userId, isActive: true, deletedAt: null },
-      select: { id: true, role: true },
+      select: { id: true, name: true, role: true },
     });
     if (!actor) {
       return {
@@ -441,7 +797,7 @@ export async function courseShareInviteHandler(args: {
     }
     const course = await prisma.course.findFirst({
       where: { id: args.courseId, deletedAt: null },
-      select: { id: true, createdBy: true },
+      select: { id: true, title: true, createdBy: true },
     });
     if (!course) {
       return {
@@ -459,6 +815,12 @@ export async function courseShareInviteHandler(args: {
         isError: true,
       };
     }
+    if (args.targetUserId === actor.id) {
+      return {
+        content: [{ type: "text" as const, text: "본인에게는 공유할 수 없습니다." }],
+        isError: true,
+      };
+    }
     const target = await prisma.user.findUnique({
       where: { id: args.targetUserId, isActive: true, deletedAt: null },
       select: { id: true },
@@ -469,27 +831,70 @@ export async function courseShareInviteHandler(args: {
         isError: true,
       };
     }
-    const share = await prisma.courseShare.upsert({
-      where: {
-        courseId_sharedWithUserId: {
+    const result = await prisma.$transaction(async (tx) => {
+      const existing = await tx.courseShare.findUnique({
+        where: {
+          courseId_sharedWithUserId: {
+            courseId: args.courseId,
+            sharedWithUserId: args.targetUserId,
+          },
+        },
+        select: { id: true, status: true },
+      });
+
+      let revokedLectureGrantCount = 0;
+      let reassignedLectureGrantCount = 0;
+      if (existing?.status === "accepted") {
+        const revokeResult = await revokeAcceptedCourseShareLectures(tx, {
           courseId: args.courseId,
           sharedWithUserId: args.targetUserId,
+          sourceRefId: existing.id,
+        });
+        revokedLectureGrantCount = revokeResult.revokedCount;
+        reassignedLectureGrantCount = revokeResult.reassignedCount;
+      }
+
+      const share = await tx.courseShare.upsert({
+        where: {
+          courseId_sharedWithUserId: {
+            courseId: args.courseId,
+            sharedWithUserId: args.targetUserId,
+          },
         },
-      },
-      update: {
-        status: "pending",
-        sharedByUserId: actor.id,
-        respondedAt: null,
-      },
-      create: {
-        courseId: args.courseId,
-        sharedWithUserId: args.targetUserId,
-        sharedByUserId: actor.id,
-        status: "pending",
-      },
+        update: {
+          status: "pending",
+          sharedByUserId: actor.id,
+          respondedAt: null,
+        },
+        create: {
+          courseId: args.courseId,
+          sharedWithUserId: args.targetUserId,
+          sharedByUserId: actor.id,
+          status: "pending",
+        },
+      });
+
+      await createUserMessage(tx, {
+        recipientUserId: args.targetUserId,
+        senderUserId: actor.id,
+        category: "course_share",
+        title: `[코스 공유 요청] ${course.title}`,
+        body: `${actor.name}님이 "${course.title}" 코스를 공유했습니다.`,
+        actionType: "course_share_pending",
+        actionPayload: {
+          courseId: args.courseId,
+        },
+      });
+
+      return {
+        share,
+        previousStatus: existing?.status ?? null,
+        revokedLectureGrantCount,
+        reassignedLectureGrantCount,
+      };
     });
     return {
-      content: [{ type: "text" as const, text: JSON.stringify(share) }],
+      content: [{ type: "text" as const, text: JSON.stringify(result) }],
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
@@ -506,12 +911,13 @@ export async function courseShareRespondHandler(args: {
   token: string;
   courseId: string;
   accept: boolean;
+  reason?: string;
 }) {
   try {
     const payload = verifyToken(args.token);
     const user = await prisma.user.findUnique({
       where: { id: payload.userId, isActive: true, deletedAt: null },
-      select: { id: true },
+      select: { id: true, name: true },
     });
     if (!user) {
       return {
@@ -519,32 +925,95 @@ export async function courseShareRespondHandler(args: {
         isError: true,
       };
     }
-    const existing = await prisma.courseShare.findUnique({
-      where: {
-        courseId_sharedWithUserId: {
-          courseId: args.courseId,
-          sharedWithUserId: user.id,
-        },
-      },
-      select: { id: true },
+    const course = await prisma.course.findFirst({
+      where: { id: args.courseId, deletedAt: null },
+      select: { id: true, title: true },
     });
-    if (!existing) {
+    if (!course) {
       return {
-        content: [{ type: "text" as const, text: "공유 요청을 찾을 수 없습니다." }],
+        content: [{ type: "text" as const, text: `Course not found: ${args.courseId}` }],
         isError: true,
       };
     }
-    const updated = await prisma.courseShare.update({
-      where: { id: existing.id },
-      data: {
-        status: args.accept ? "accepted" : "rejected",
-        respondedAt: new Date(),
-      },
+    const targetStatus = args.accept ? "accepted" : "rejected";
+    const updated = await prisma.$transaction(async (tx) => {
+      const existing = await tx.courseShare.findUnique({
+        where: {
+          courseId_sharedWithUserId: {
+            courseId: args.courseId,
+            sharedWithUserId: user.id,
+          },
+        },
+        select: { id: true, status: true, sharedByUserId: true },
+      });
+      if (!existing) {
+        throw new Error("COURSE_SHARE_NOT_FOUND");
+      }
+
+      const share = await tx.courseShare.update({
+        where: { id: existing.id },
+        data: {
+          status: targetStatus,
+          respondedAt: new Date(),
+        },
+      });
+
+      let grantedLectureGrantCount = 0;
+      let revokedLectureGrantCount = 0;
+      let reassignedLectureGrantCount = 0;
+      if (args.accept) {
+        grantedLectureGrantCount = await grantAcceptedCourseShareLectures(tx, {
+          courseId: args.courseId,
+          sharedWithUserId: user.id,
+          sharedByUserId: existing.sharedByUserId,
+          sourceRefId: existing.id,
+        });
+      } else {
+        const revokeResult = await revokeAcceptedCourseShareLectures(tx, {
+          courseId: args.courseId,
+          sharedWithUserId: user.id,
+          sourceRefId: existing.id,
+        });
+        revokedLectureGrantCount = revokeResult.revokedCount;
+        reassignedLectureGrantCount = revokeResult.reassignedCount;
+      }
+
+      const reasonText = args.reason?.trim();
+      const body = args.accept
+        ? `${user.name}님이 "${course.title}" 코스 공유를 수락했습니다.`
+        : `${user.name}님이 "${course.title}" 코스 공유를 거절했습니다.${reasonText ? ` 사유: ${reasonText}` : ""}`;
+      await createUserMessage(tx, {
+        recipientUserId: existing.sharedByUserId,
+        senderUserId: user.id,
+        category: "course_share",
+        title: `[코스 공유 응답] ${course.title}`,
+        body,
+        actionType: "course_share_response",
+        actionPayload: {
+          courseId: args.courseId,
+          status: targetStatus,
+          reason: reasonText ?? null,
+        },
+      });
+
+      return {
+        share,
+        previousStatus: existing.status,
+        grantedLectureGrantCount,
+        revokedLectureGrantCount,
+        reassignedLectureGrantCount,
+      };
     });
     return {
       content: [{ type: "text" as const, text: JSON.stringify(updated) }],
     };
   } catch (error) {
+    if (error instanceof Error && error.message === "COURSE_SHARE_NOT_FOUND") {
+      return {
+        content: [{ type: "text" as const, text: "공유 요청을 찾을 수 없습니다." }],
+        isError: true,
+      };
+    }
     const message = error instanceof Error ? error.message : "Unknown error";
     return {
       content: [
@@ -689,7 +1158,7 @@ export async function courseShareRevokeHandler(args: {
     const payload = verifyToken(args.token);
     const actor = await prisma.user.findUnique({
       where: { id: payload.userId, isActive: true, deletedAt: null },
-      select: { id: true, role: true },
+      select: { id: true, name: true, role: true },
     });
     if (!actor) {
       return {
@@ -700,7 +1169,7 @@ export async function courseShareRevokeHandler(args: {
 
     const course = await prisma.course.findFirst({
       where: { id: args.courseId, deletedAt: null },
-      select: { id: true, createdBy: true },
+      select: { id: true, title: true, createdBy: true },
     });
     if (!course) {
       return {
@@ -719,16 +1188,69 @@ export async function courseShareRevokeHandler(args: {
         isError: true,
       };
     }
+    const result = await prisma.$transaction(async (tx) => {
+      const existing = await tx.courseShare.findUnique({
+        where: {
+          courseId_sharedWithUserId: {
+            courseId: args.courseId,
+            sharedWithUserId: args.targetUserId,
+          },
+        },
+        select: { id: true, status: true },
+      });
+      if (!existing) {
+        return {
+          deletedShareCount: 0,
+          revokedLectureGrantCount: 0,
+          reassignedLectureGrantCount: 0,
+          previousStatus: null as "pending" | "accepted" | "rejected" | null,
+        };
+      }
 
-    await prisma.courseShare.deleteMany({
-      where: {
-        courseId: args.courseId,
-        sharedWithUserId: args.targetUserId,
-      },
+      const deletedShare = await tx.courseShare.deleteMany({
+        where: { id: existing.id },
+      });
+
+      let revokedLectureGrantCount = 0;
+      let reassignedLectureGrantCount = 0;
+      if (existing.status === "accepted") {
+        const revokeResult = await revokeAcceptedCourseShareLectures(tx, {
+          courseId: args.courseId,
+          sharedWithUserId: args.targetUserId,
+          sourceRefId: existing.id,
+        });
+        revokedLectureGrantCount = revokeResult.revokedCount;
+        reassignedLectureGrantCount = revokeResult.reassignedCount;
+      }
+
+      await createUserMessage(tx, {
+        recipientUserId: args.targetUserId,
+        senderUserId: actor.id,
+        category: "course_share",
+        title: `[코스 공유 해제] ${course.title}`,
+        body: `${actor.name}님이 "${course.title}" 코스 공유를 해제했습니다.`,
+        actionType: "course_share_revoked",
+        actionPayload: {
+          courseId: args.courseId,
+          previousStatus: existing.status,
+        },
+      });
+
+      return {
+        deletedShareCount: deletedShare.count,
+        revokedLectureGrantCount,
+        reassignedLectureGrantCount,
+        previousStatus: existing.status,
+      };
     });
 
     return {
-      content: [{ type: "text" as const, text: JSON.stringify({ ok: true }) }],
+      content: [
+        {
+          type: "text" as const,
+          text: JSON.stringify({ ok: true, ...result }),
+        },
+      ],
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
@@ -791,6 +1313,115 @@ export async function courseShareTargetsHandler(args: {
     return {
       content: [
         { type: "text" as const, text: `Failed to list share targets: ${message}` },
+      ],
+      isError: true,
+    };
+  }
+}
+
+export async function courseShareLeaveHandler(args: {
+  token: string;
+  courseId: string;
+}) {
+  try {
+    const payload = verifyToken(args.token);
+    const actor = await prisma.user.findUnique({
+      where: { id: payload.userId, isActive: true, deletedAt: null },
+      select: { id: true, name: true },
+    });
+    if (!actor) {
+      return {
+        content: [{ type: "text" as const, text: "사용자를 찾을 수 없습니다." }],
+        isError: true,
+      };
+    }
+    const course = await prisma.course.findFirst({
+      where: { id: args.courseId, deletedAt: null },
+      select: { id: true, title: true },
+    });
+    const courseTitle = course?.title ?? args.courseId;
+    const {
+      deletedShareCount,
+      revokedLectureGrantCount,
+      reassignedLectureGrantCount,
+      previousStatus,
+    } =
+      await prisma.$transaction(async (tx) => {
+        const existing = await tx.courseShare.findUnique({
+          where: {
+            courseId_sharedWithUserId: {
+              courseId: args.courseId,
+              sharedWithUserId: actor.id,
+            },
+          },
+          select: { id: true, status: true, sharedByUserId: true },
+        });
+
+        if (!existing) {
+          return {
+            deletedShareCount: 0,
+            revokedLectureGrantCount: 0,
+            reassignedLectureGrantCount: 0,
+            previousStatus: null as "pending" | "accepted" | "rejected" | null,
+          };
+        }
+
+        const deletedShare = await tx.courseShare.deleteMany({
+          where: { id: existing.id },
+        });
+
+        let revokedCount = 0;
+        let reassignedCount = 0;
+        if (existing.status === "accepted") {
+          const revokeResult = await revokeAcceptedCourseShareLectures(tx, {
+            courseId: args.courseId,
+            sharedWithUserId: actor.id,
+            sourceRefId: existing.id,
+          });
+          revokedCount = revokeResult.revokedCount;
+          reassignedCount = revokeResult.reassignedCount;
+        }
+
+        await createUserMessage(tx, {
+          recipientUserId: existing.sharedByUserId,
+          senderUserId: actor.id,
+          category: "course_share",
+          title: `[코스 공유 해제] ${courseTitle}`,
+          body: `${actor.name}님이 "${courseTitle}" 코스 공유를 해제했습니다.`,
+          actionType: "course_share_left",
+          actionPayload: {
+            courseId: args.courseId,
+            previousStatus: existing.status,
+          },
+        });
+
+        return {
+          deletedShareCount: deletedShare.count,
+          revokedLectureGrantCount: revokedCount,
+          reassignedLectureGrantCount: reassignedCount,
+          previousStatus: existing.status,
+        };
+      });
+
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: JSON.stringify({
+            ok: true,
+            deletedShareCount,
+            revokedLectureGrantCount,
+            reassignedLectureGrantCount,
+            previousStatus,
+          }),
+        },
+      ],
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    return {
+      content: [
+        { type: "text" as const, text: `Failed to leave course share: ${message}` },
       ],
       isError: true,
     };

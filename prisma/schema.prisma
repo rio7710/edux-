@@ -20,12 +20,24 @@ enum Role {
   guest
 }
 
+enum GroupMemberRole {
+  owner
+  manager
+  member
+}
+
+enum PermissionEffect {
+  allow
+  deny
+}
+
 model User {
   id                String             @id @default(cuid())
   email             String             @unique
   name              String
   phone             String?
   website           String?
+  avatarUrl         String?
   role              Role               @default(guest)
   hashedPassword    String? // nullable for social login users
   provider          String? // 'local' | 'google' | 'kakao' etc.
@@ -41,6 +53,64 @@ model User {
   CourseSharesSent   CourseShare[]     @relation("CourseShareSharedBy")
   RenderJobs        RenderJob[]
   UserDocuments     UserDocument[]
+  GroupMembers      GroupMember[]
+  PermissionGrants  PermissionGrant[]
+  LectureGrants     LectureGrant[]
+  MessagesReceived  UserMessage[]      @relation("UserMessageRecipient")
+  MessagesSent      UserMessage[]      @relation("UserMessageSender")
+}
+
+model Group {
+  id               String            @id @default(cuid())
+  name             String
+  description      String?
+  createdBy        String?
+  isActive         Boolean           @default(true)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  deletedAt        DateTime?
+  Members          GroupMember[]
+  PermissionGrants PermissionGrant[]
+
+  @@index([name])
+  @@index([deletedAt])
+}
+
+model GroupMember {
+  id         String          @id @default(cuid())
+  groupId    String
+  userId     String
+  memberRole GroupMemberRole @default(member)
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+  deletedAt  DateTime?
+  Group      Group           @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  User       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+  @@index([groupId, deletedAt])
+  @@index([userId, deletedAt])
+}
+
+model PermissionGrant {
+  id            String           @id @default(cuid())
+  permissionKey String
+  effect        PermissionEffect
+  userId        String?
+  groupId       String?
+  role          Role?
+  createdBy     String?
+  note          String?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  deletedAt     DateTime?
+  User          User?            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  Group         Group?           @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([permissionKey, deletedAt])
+  @@index([userId, permissionKey, deletedAt])
+  @@index([groupId, permissionKey, deletedAt])
+  @@index([role, permissionKey, deletedAt])
 }
 
 // ──────────────────────────────────────
@@ -80,9 +150,16 @@ model InstructorProfile {
   displayName String?
   title       String?
   bio         String?
-  links       Json?
-  isApproved  Boolean  @default(false)
-  isPending   Boolean  @default(true)
+  links          Json?
+  degrees        Json?
+  careers        Json?
+  publications   Json?
+  certifications Json?
+  specialties    String[]
+  affiliation    String?
+  email          String?
+  isApproved     Boolean  @default(false)
+  isPending      Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -101,21 +178,34 @@ model Course {
   isOnline      Boolean?
   equipment     String[]
   goal          String?
+  content       String?
   notes         String?
   createdBy     String? // 등록자 ID
   createdAt     DateTime         @default(now())
   updatedAt     DateTime         @updatedAt
   deletedAt     DateTime?
-  Lectures      Lecture[]
   Schedules     CourseSchedule[]
   CourseInstructors CourseInstructor[]
   CourseShares  CourseShare[]
+  CourseLectures CourseLecture[]
 }
 
 enum CourseShareStatus {
   pending
   accepted
   rejected
+}
+
+enum LectureGrantSourceType {
+  manual
+  course_share
+}
+
+enum UserMessageCategory {
+  system
+  course_share
+  lecture_grant
+  instructor_approval
 }
 
 model CourseShare {
@@ -150,18 +240,81 @@ model CourseInstructor {
   @@index([instructorId])
 }
 
+model CourseLecture {
+  id         String   @id @default(cuid())
+  courseId   String
+  lectureId  String
+  order      Int      @default(0)
+  createdBy  String?
+  createdAt  DateTime @default(now())
+
+  Course   Course  @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  Lecture  Lecture @relation(fields: [lectureId], references: [id], onDelete: Cascade)
+
+  @@unique([courseId, lectureId])
+  @@index([courseId])
+  @@index([lectureId])
+}
+
 model Lecture {
   id          String    @id @default(cuid())
-  courseId    String
   title       String
   description String?
   hours       Float?
   order       Int       @default(0)
   createdBy   String?
+  authorId    String? // 원저작자
+  originLectureId String? // 복제본 원본 참조
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   deletedAt   DateTime?
-  Course      Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  CourseLinks CourseLecture[]
+  Grants      LectureGrant[]
+}
+
+model LectureGrant {
+  id              String   @id @default(cuid())
+  lectureId       String
+  userId          String
+  grantedByUserId String
+  sourceType      LectureGrantSourceType @default(manual)
+  sourceRefId     String?
+  canMap          Boolean  @default(false)
+  canEdit         Boolean  @default(false)
+  canReshare      Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  revokedAt       DateTime?
+
+  Lecture Lecture @relation(fields: [lectureId], references: [id], onDelete: Cascade)
+  User    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([lectureId, userId])
+  @@index([userId])
+  @@index([sourceType, sourceRefId])
+}
+
+model UserMessage {
+  id              String              @id @default(cuid())
+  recipientUserId String
+  senderUserId    String?
+  category        UserMessageCategory @default(system)
+  title           String
+  body            String?
+  actionType      String?
+  actionPayload   Json?
+  isRead          Boolean             @default(false)
+  readAt          DateTime?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  deletedAt       DateTime?
+
+  Recipient User  @relation("UserMessageRecipient", fields: [recipientUserId], references: [id], onDelete: Cascade)
+  Sender    User? @relation("UserMessageSender", fields: [senderUserId], references: [id], onDelete: SetNull)
+
+  @@index([recipientUserId, createdAt(sort: Desc)])
+  @@index([recipientUserId, isRead, createdAt(sort: Desc)])
+  @@index([recipientUserId, category, createdAt(sort: Desc)])
+  @@index([senderUserId, createdAt(sort: Desc)])
 }
 
 model CourseSchedule {
@@ -193,9 +346,12 @@ model Template {
   createdBy String?
   createdAt DateTime          @default(now())
   updatedAt DateTime          @updatedAt
+  deletedAt DateTime?
   Versions  TemplateVersion[]
   RenderJobs RenderJob[]
   UserDocuments UserDocument[]
+
+  @@index([deletedAt])
 }
 
 model TemplateVersion {

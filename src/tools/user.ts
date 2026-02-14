@@ -1,13 +1,16 @@
 import bcrypt from "bcrypt";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import {
   signAccessToken,
   signAccessTokenWithExpiry,
   signRefreshToken,
+  verifyRefreshToken,
   verifyToken,
   decodeTokenWithExp,
   type JwtPayload,
 } from "../services/jwt.js";
+import { createUserMessage } from "../services/message.js";
 import { prisma } from "../services/prisma.js";
 
 const SALT_ROUNDS = 10;
@@ -49,6 +52,7 @@ export const userUpdateSchema = {
   name: nullableString.describe("이름"),
   phone: nullableString.describe("전화번호"),
   website: nullableString.describe("웹사이트"),
+  avatarUrl: nullableString.describe("사용자 프로필 사진 URL"),
   currentPassword: z
     .string()
     .optional()
@@ -93,12 +97,43 @@ export const userRequestInstructorSchema = {
   bio: nullableString.describe("자기소개"),
   phone: nullableString.describe("전화번호"),
   website: nullableString.describe("웹사이트"),
+  avatarUrl: nullableString.describe("강사 사진 URL"),
   links: z.any().optional().describe("추가 링크 (JSON)"),
+  degrees: z.array(z.object({
+    name: z.string(),
+    school: z.string(),
+    major: z.string(),
+    year: z.string(),
+    fileUrl: nullableString,
+  })).nullable().optional().describe("학위 정보"),
+  careers: z.array(z.object({
+    company: z.string(),
+    role: z.string(),
+    period: z.string(),
+    description: nullableString,
+  })).nullable().optional().describe("경력 정보"),
+  publications: z.array(z.object({
+    title: z.string(),
+    type: z.string(),
+    year: nullableString,
+    publisher: nullableString,
+    url: nullableString,
+  })).nullable().optional().describe("출판/논문"),
+  certifications: z.array(z.object({
+    name: z.string(),
+    issuer: nullableString,
+    date: nullableString,
+    fileUrl: nullableString,
+  })).nullable().optional().describe("자격증"),
+  specialties: z.array(z.string()).nullable().optional().describe("전문분야"),
+  affiliation: nullableString.describe("소속"),
+  email: z.string().email().nullable().optional().or(z.literal("")).describe("이메일"),
 };
 
 export const userApproveInstructorSchema = {
   token: z.string().describe("액세스 토큰 (관리자만)"),
   userId: z.string().describe("강사 승인 대상 사용자 ID"),
+  message: z.string().max(500).optional().describe("승인 메시지"),
 };
 
 export const userUpdateInstructorProfileSchema = {
@@ -109,6 +144,35 @@ export const userUpdateInstructorProfileSchema = {
   phone: nullableString.describe("전화번호"),
   website: nullableString.describe("웹사이트"),
   links: z.any().optional().describe("추가 링크 (JSON)"),
+  degrees: z.array(z.object({
+    name: z.string(),
+    school: z.string(),
+    major: z.string(),
+    year: z.string(),
+    fileUrl: nullableString,
+  })).nullable().optional().describe("학위 정보"),
+  careers: z.array(z.object({
+    company: z.string(),
+    role: z.string(),
+    period: z.string(),
+    description: nullableString,
+  })).nullable().optional().describe("경력 정보"),
+  publications: z.array(z.object({
+    title: z.string(),
+    type: z.string(),
+    year: nullableString,
+    publisher: nullableString,
+    url: nullableString,
+  })).nullable().optional().describe("출판/논문"),
+  certifications: z.array(z.object({
+    name: z.string(),
+    issuer: nullableString,
+    date: nullableString,
+    fileUrl: nullableString,
+  })).nullable().optional().describe("자격증"),
+  specialties: z.array(z.string()).nullable().optional().describe("전문분야"),
+  affiliation: nullableString.describe("소속"),
+  email: z.string().email().nullable().optional().or(z.literal("")).describe("이메일"),
 };
 
 export const userGetInstructorProfileSchema = {
@@ -139,6 +203,11 @@ function validatePassword(password: string): boolean {
   return PASSWORD_REGEX.test(password);
 }
 
+function toNullableJsonValue<T>(value: T | null | undefined) {
+  if (value === undefined) return undefined;
+  return value === null ? Prisma.JsonNull : value;
+}
+
 async function verifyAndGetUser(token: string) {
   const payload = verifyToken(token);
   const user = await prisma.user.findUnique({
@@ -153,6 +222,7 @@ function sanitizeUser(user: {
   name: string;
   phone: string | null;
   website: string | null;
+  avatarUrl?: string | null;
   role: string;
   isActive: boolean;
   createdAt: Date;
@@ -164,6 +234,7 @@ function sanitizeUser(user: {
     name: user.name,
     phone: user.phone,
     website: user.website,
+    avatarUrl: user.avatarUrl ?? null,
     role: user.role,
     isActive: user.isActive,
     createdAt: user.createdAt,
@@ -349,7 +420,7 @@ export async function userRefreshTokenHandler(args: {
   accessToken?: string;
 }) {
   try {
-    const payload = verifyToken(args.refreshToken) as JwtPayload;
+    const payload = verifyRefreshToken(args.refreshToken) as JwtPayload;
     const user = await prisma.user.findUnique({
       where: { id: payload.userId, isActive: true, deletedAt: null },
     });
@@ -470,6 +541,7 @@ export async function userImpersonateHandler(args: {
         name: true,
         phone: true,
         website: true,
+        avatarUrl: true,
         role: true,
         isActive: true,
         createdAt: true,
@@ -491,6 +563,7 @@ export async function userImpersonateHandler(args: {
         name: true,
         phone: true,
         website: true,
+        avatarUrl: true,
         role: true,
         isActive: true,
         createdAt: true,
@@ -623,6 +696,7 @@ export async function userUpdateHandler(args: {
   name?: string | null;
   phone?: string | null;
   website?: string | null;
+  avatarUrl?: string | null;
   currentPassword?: string;
   newPassword?: string;
 }) {
@@ -642,6 +716,7 @@ export async function userUpdateHandler(args: {
       name?: string;
       phone?: string | null;
       website?: string | null;
+      avatarUrl?: string | null;
       hashedPassword?: string;
     } = {};
 
@@ -654,6 +729,9 @@ export async function userUpdateHandler(args: {
     }
     if (args.website !== undefined) {
       updateData.website = args.website;
+    }
+    if (args.avatarUrl !== undefined) {
+      updateData.avatarUrl = args.avatarUrl;
     }
 
     // 비밀번호 변경
@@ -854,6 +932,7 @@ export async function userListHandler(args: {
           id: true,
           email: true,
           name: true,
+          avatarUrl: true,
           role: true,
           isActive: true,
           provider: true,
@@ -1071,7 +1150,15 @@ export async function requestInstructorHandler(args: {
   bio?: string | null;
   phone?: string | null;
   website?: string | null;
+  avatarUrl?: string | null;
   links?: any;
+  degrees?: { name: string; school: string; major: string; year: string; fileUrl?: string | null }[] | null;
+  careers?: { company: string; role: string; period: string; description?: string | null }[] | null;
+  publications?: { title: string; type: string; year?: string | null; publisher?: string | null; url?: string | null }[] | null;
+  certifications?: { name: string; issuer?: string | null; date?: string | null; fileUrl?: string | null }[] | null;
+  specialties?: string[] | null;
+  affiliation?: string | null;
+  email?: string | null;
 }) {
   try {
     const { user } = await verifyAndGetUser(args.token);
@@ -1084,12 +1171,17 @@ export async function requestInstructorHandler(args: {
       };
     }
 
-    if (args.phone !== undefined || args.website !== undefined) {
+    if (
+      args.phone !== undefined ||
+      args.website !== undefined ||
+      args.avatarUrl !== undefined
+    ) {
       await prisma.user.update({
         where: { id: user.id },
         data: {
           phone: args.phone === undefined ? undefined : args.phone,
           website: args.website === undefined ? undefined : args.website,
+          avatarUrl: args.avatarUrl === undefined ? undefined : args.avatarUrl,
         },
       });
     }
@@ -1102,6 +1194,13 @@ export async function requestInstructorHandler(args: {
         title: args.title,
         bio: args.bio,
         links: args.links === undefined ? undefined : args.links,
+        degrees: toNullableJsonValue(args.degrees),
+        careers: toNullableJsonValue(args.careers),
+        publications: toNullableJsonValue(args.publications),
+        certifications: toNullableJsonValue(args.certifications),
+        specialties: args.specialties !== undefined && args.specialties !== null ? args.specialties : undefined,
+        affiliation: args.affiliation === undefined ? undefined : args.affiliation,
+        email: args.email === undefined ? undefined : (args.email || null),
         isPending: true,
       },
       create: {
@@ -1110,6 +1209,13 @@ export async function requestInstructorHandler(args: {
         title: args.title,
         bio: args.bio,
         links: args.links === undefined ? undefined : args.links,
+        degrees: args.degrees || undefined,
+        careers: args.careers || undefined,
+        publications: args.publications || undefined,
+        certifications: args.certifications || undefined,
+        specialties: args.specialties || [],
+        affiliation: args.affiliation || undefined,
+        email: args.email || undefined,
         isPending: true,
       },
     });
@@ -1138,6 +1244,7 @@ export async function requestInstructorHandler(args: {
 export async function approveInstructorHandler(args: {
   token: string;
   userId: string;
+  message?: string;
 }) {
   try {
     const { payload, user } = await verifyAndGetUser(args.token);
@@ -1186,8 +1293,14 @@ export async function approveInstructorHandler(args: {
         name:
           profile.User?.name || profile.displayName || existingInstructor.name,
         title: profile.title,
-        email: profile.User?.email,
+        email: profile.email || profile.User?.email,
         tagline: profile.bio,
+        affiliation: profile.affiliation || existingInstructor.affiliation,
+        degrees: profile.degrees || existingInstructor.degrees,
+        careers: profile.careers || existingInstructor.careers,
+        publications: profile.publications || existingInstructor.publications,
+        certifications: profile.certifications || existingInstructor.certifications,
+        specialties: profile.specialties?.length ? profile.specialties : existingInstructor.specialties,
       };
       if (profile.links) {
         updateData.links = profile.links;
@@ -1201,10 +1314,14 @@ export async function approveInstructorHandler(args: {
         userId: args.userId,
         name: profile.User?.name || profile.displayName || "Unknown",
         title: profile.title,
-        email: profile.User?.email,
+        email: profile.email || profile.User?.email,
         tagline: profile.bio,
-        specialties: [],
-        certifications: [],
+        affiliation: profile.affiliation || undefined,
+        degrees: profile.degrees || undefined,
+        careers: profile.careers || undefined,
+        publications: profile.publications || undefined,
+        certifications: profile.certifications || undefined,
+        specialties: profile.specialties?.length ? profile.specialties : [],
         awards: [],
         createdBy: payload.userId,
       };
@@ -1226,6 +1343,19 @@ export async function approveInstructorHandler(args: {
     await prisma.user.update({
       where: { id: args.userId },
       data: { role: "instructor" },
+    });
+
+    const note = args.message?.trim();
+    await createUserMessage(prisma, {
+      recipientUserId: args.userId,
+      senderUserId: payload.userId,
+      category: "instructor_approval",
+      title: "[강사 승인 완료] 강사 권한이 승인되었습니다",
+      body: note || "강사 승인 완료. 이제 강사 프로필/코스를 등록할 수 있습니다.",
+      actionType: "instructor_approved",
+      actionPayload: {
+        instructorId: instructor.id,
+      },
     });
 
     return {
@@ -1254,6 +1384,13 @@ export async function updateInstructorProfileHandler(args: {
   phone?: string | null;
   website?: string | null;
   links?: any;
+  degrees?: { name: string; school: string; major: string; year: string; fileUrl?: string | null }[] | null;
+  careers?: { company: string; role: string; period: string; description?: string | null }[] | null;
+  publications?: { title: string; type: string; year?: string | null; publisher?: string | null; url?: string | null }[] | null;
+  certifications?: { name: string; issuer?: string | null; date?: string | null; fileUrl?: string | null }[] | null;
+  specialties?: string[] | null;
+  affiliation?: string | null;
+  email?: string | null;
 }) {
   try {
     const { user } = await verifyAndGetUser(args.token);
@@ -1283,6 +1420,13 @@ export async function updateInstructorProfileHandler(args: {
         title: args.title,
         bio: args.bio,
         links: args.links === undefined ? undefined : args.links,
+        degrees: toNullableJsonValue(args.degrees),
+        careers: toNullableJsonValue(args.careers),
+        publications: toNullableJsonValue(args.publications),
+        certifications: toNullableJsonValue(args.certifications),
+        specialties: args.specialties !== undefined && args.specialties !== null ? args.specialties : undefined,
+        affiliation: args.affiliation === undefined ? undefined : args.affiliation,
+        email: args.email === undefined ? undefined : (args.email || null),
       },
       create: {
         userId: user.id,
@@ -1290,6 +1434,13 @@ export async function updateInstructorProfileHandler(args: {
         title: args.title,
         bio: args.bio,
         links: args.links === undefined ? undefined : args.links,
+        degrees: args.degrees || undefined,
+        careers: args.careers || undefined,
+        publications: args.publications || undefined,
+        certifications: args.certifications || undefined,
+        specialties: args.specialties || [],
+        affiliation: args.affiliation || undefined,
+        email: args.email || undefined,
         isPending: true,
       },
     });

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Button,
   Table,
@@ -7,12 +7,12 @@ import {
   Input,
   message,
   Space,
-  Tag,
-  Upload,
   Select,
   Divider,
   Avatar,
   Alert,
+  Tooltip,
+  Result,
 } from 'antd';
 import type { ColumnType } from 'antd/es/table';
 import {
@@ -20,18 +20,21 @@ import {
   EditOutlined,
   EyeOutlined,
   ReloadOutlined,
-  MinusCircleOutlined,
-  UploadOutlined,
+  SettingOutlined,
   UserOutlined,
 } from '@ant-design/icons';
 import { useMutation } from '@tanstack/react-query';
 import { api, mcpClient } from '../api/mcpClient';
 import { useAuth } from '../contexts/AuthContext';
+import { useSitePermissions } from '../hooks/useSitePermissions';
 import { useTableConfig } from '../hooks/useTableConfig';
 import { buildColumns, NO_COLUMN_KEY } from '../utils/tableConfig';
 import { DEFAULT_COLUMNS } from '../utils/tableDefaults';
 import type { RcFile } from 'antd/es/upload';
 import { useLocation, useNavigate } from 'react-router-dom';
+import AvatarUploadField from '../components/AvatarUploadField';
+import InstructorCareerSection from '../components/InstructorCareerSection';
+import { isAuthErrorMessage, parseMcpError } from '../utils/error';
 
 interface Degree {
   name: string;
@@ -72,18 +75,71 @@ interface Instructor {
   phone?: string;
   affiliation?: string;
   avatarUrl?: string;
+  tagline?: string;
   bio?: string;
   specialties?: string[];
   certifications?: Certification[];
   awards?: string[];
+  links?: Record<string, string>;
   degrees?: Degree[];
   careers?: Career[];
   publications?: Publication[];
   createdBy?: string;
+  createdAt?: string;
+  updatedAt?: string;
   Courses?: { id: string; title: string }[];
 }
 
 const SERVER_URL = '';
+const toOptionalString = (value: unknown): string | undefined =>
+  typeof value === 'string' ? value : undefined;
+
+const extractYearScore = (value?: string): number | null => {
+  if (!value) return null;
+  const matches = value.match(/\b(19|20)\d{2}\b/g);
+  if (!matches || matches.length === 0) return null;
+  return Math.max(...matches.map((year) => Number(year)));
+};
+
+const extractDateScore = (value?: string): number | null => {
+  if (!value) return null;
+  const normalized = value.trim().replace(/\./g, '-').replace(/\//g, '-');
+  const withDay = /^\d{4}-\d{1,2}$/.test(normalized) ? `${normalized}-01` : normalized;
+  const timestamp = Date.parse(withDay);
+  if (!Number.isNaN(timestamp)) return timestamp;
+  const year = extractYearScore(value);
+  return year ? Date.UTC(year, 0, 1) : null;
+};
+
+const pickLatestByScore = <T,>(
+  values: T[] | undefined,
+  scoreGetter: (item: T) => number | null,
+): T | null => {
+  if (!Array.isArray(values) || values.length === 0) return null;
+  let bestIndex = -1;
+  let bestScore = Number.NEGATIVE_INFINITY;
+
+  values.forEach((item, index) => {
+    const score = scoreGetter(item);
+    if (score === null) return;
+    if (score > bestScore || (score === bestScore && index > bestIndex)) {
+      bestScore = score;
+      bestIndex = index;
+    }
+  });
+
+  if (bestIndex >= 0) return values[bestIndex] ?? null;
+  return values[values.length - 1] ?? null;
+};
+
+const pickLatestText = (values?: string[]): string | null => {
+  if (!Array.isArray(values) || values.length === 0) return null;
+  for (let i = values.length - 1; i >= 0; i -= 1) {
+    const candidate = values[i]?.trim();
+    if (candidate) return candidate;
+  }
+  return null;
+};
 
 export default function InstructorsPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -103,6 +159,10 @@ export default function InstructorsPage() {
   const isAdminOperator = user?.role === 'admin' || user?.role === 'operator';
   const [users, setUsers] = useState<Array<{ id: string; name: string; email: string; role: string }>>([]);
   const [usersLoading, setUsersLoading] = useState(false);
+  const draftPromptOpenRef = useRef(false);
+  const { canAccessMenu, canUseFeature } = useSitePermissions(user?.role);
+  const canAccessInstructorsMenu = canAccessMenu('instructors');
+  const canUpsertInstructorBySite = canUseFeature('instructors', 'instructor.upsert');
 
   const draftKey = useMemo(() => 'draft:instructor', []);
 
@@ -131,11 +191,7 @@ export default function InstructorsPage() {
     localStorage.removeItem(draftKey);
   };
 
-  const isAuthError = (messageText: string) => {
-    return /인증|토큰|로그인|권한|세션|MCP 연결 시간이 초과되었습니다|요청 시간이 초과되었습니다/.test(
-      messageText,
-    );
-  };
+  const isAuthError = (messageText: string) => isAuthErrorMessage(messageText);
 
   const handleSessionExpired = (reason?: string) => {
     saveDraft();
@@ -194,30 +250,41 @@ export default function InstructorsPage() {
     setIsModalOpen(true);
   }, [location.search]);
 
-  const loadUsers = async () => {
-    if (!accessToken) return;
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get('create') !== '1') return;
+    handleCreate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.search]);
+
+  const loadUsers = async (): Promise<Array<{ id: string; name: string; email: string; role: string }>> => {
+    if (!accessToken) return [];
     try {
       setUsersLoading(true);
       const result = await api.userList(accessToken, 100, 0) as { users: Array<{ id: string; name: string; email: string; role: string }> };
-      setUsers(result.users || []);
+      const list = result.users || [];
+      setUsers(list);
+      return list;
     } catch {
       message.error('사용자 목록을 불러오지 못했습니다.');
+      return [];
     } finally {
       setUsersLoading(false);
     }
   };
 
   const parseValidationError = (errorMessage: string): string => {
-    if (errorMessage.includes('Invalid email')) {
+    const parsed = parseMcpError(errorMessage);
+    if (parsed.includes('Invalid email')) {
       return '이메일 형식이 올바르지 않습니다. (예: example@email.com)';
     }
-    if (errorMessage.includes('Invalid url')) {
+    if (parsed.includes('Invalid url')) {
       return 'URL 형식이 올바르지 않습니다. (예: https://example.com)';
     }
-    if (errorMessage.includes('Required')) {
+    if (parsed.includes('Required')) {
       return '필수 항목을 입력해주세요.';
     }
-    return errorMessage;
+    return parsed;
   };
 
   const createMutation = useMutation({
@@ -260,7 +327,7 @@ export default function InstructorsPage() {
         handleSessionExpired(error.message);
         return;
       }
-      message.error(`조회 실패: ${error.message}`);
+      message.error(`조회 실패: ${parseMcpError(error.message)}`);
     },
   });
 
@@ -281,35 +348,55 @@ export default function InstructorsPage() {
   };
 
   const handleCreate = () => {
+    if (!canUpsertInstructorBySite) {
+      message.warning('사이트 권한 설정에 따라 강사 등록/수정 기능이 비활성화되었습니다.');
+      return;
+    }
     if (!accessToken) {
       message.warning('로그인 후 이용해주세요.');
       return;
     }
     const draft = loadDraft();
     if (draft) {
+      if (draftPromptOpenRef.current) return;
+      draftPromptOpenRef.current = true;
       Modal.confirm({
-        title: '임시 저장된 내용이 있습니다',
-        content: '불러와서 이어서 작성할까요?',
-        okText: '불러오기',
-        cancelText: '삭제',
+        title: '임시 저장된 정보가 있습니다',
+        content: '이어서 작성하시겠습니까?',
+        okText: '이어서 작성',
+        cancelText: '아니오',
+        maskClosable: false,
+        closable: false,
         onOk: () => {
           form.setFieldsValue(draft);
           setEditingInstructor(draft.id ? ({ id: draft.id } as Instructor) : null);
           setAvatarUrl(draft.avatarUrl || '');
           setIsModalOpen(true);
+          draftPromptOpenRef.current = false;
         },
         onCancel: () => {
-          clearDraft();
-          setEditingInstructor(null);
-          setAvatarUrl('');
-          form.resetFields();
-          if (isAdminOperator) {
-            loadUsers();
-            form.setFieldsValue({ userId: undefined, name: '' });
-          } else {
-            form.setFieldsValue({ userId: user?.id, name: user?.name, email: user?.email });
-          }
-          setIsModalOpen(true);
+          Modal.confirm({
+            title: '이전 작업 초기화',
+            content: '이전 임시 저장 작업을 삭제하고 새로 시작합니다.',
+            okText: '확인',
+            cancelButtonProps: { style: { display: 'none' } },
+            maskClosable: false,
+            closable: false,
+            onOk: () => {
+              clearDraft();
+              setEditingInstructor(null);
+              setAvatarUrl('');
+              form.resetFields();
+              if (isAdminOperator) {
+                loadUsers();
+                form.setFieldsValue({ userId: undefined, name: '' });
+              } else {
+                form.setFieldsValue({ userId: user?.id, name: user?.name, email: user?.email });
+              }
+              setIsModalOpen(true);
+              draftPromptOpenRef.current = false;
+            },
+          });
         },
       });
       return;
@@ -327,26 +414,68 @@ export default function InstructorsPage() {
   };
 
   const handleEdit = async (instructor: Instructor) => {
+    if (!canUpsertInstructorBySite) {
+      message.warning('사이트 권한 설정에 따라 강사 등록/수정 기능이 비활성화되었습니다.');
+      return;
+    }
     if (!accessToken) {
       message.warning('로그인 후 이용해주세요.');
       return;
     }
     // Fetch full data to get JSON fields
     try {
+      let loadedUsers = users;
+      if (isAdminOperator) {
+        loadedUsers = await loadUsers();
+      }
       const full = await api.instructorGet(instructor.id) as Instructor;
+
+      // If linked user is missing from current user options (e.g., pagination),
+      // fetch that user directly so Select can render the current value label.
+      if (
+        isAdminOperator &&
+        accessToken &&
+        full.userId &&
+        !loadedUsers.some((u) => u.id === full.userId)
+      ) {
+        try {
+          const linked = await api.userGet(accessToken, full.userId) as {
+            id: string;
+            name: string;
+            email: string;
+            role: string;
+          };
+          if (linked?.id) {
+            loadedUsers = [linked, ...loadedUsers.filter((u) => u.id !== linked.id)];
+            setUsers(loadedUsers);
+          }
+        } catch {
+          // Ignore direct fetch failure and keep fallback matching below.
+        }
+      }
+
+      const fullEmail = (full.email || '').trim().toLowerCase();
+      const inferredUserId =
+        full.userId ||
+        loadedUsers.find((u) => u.email?.trim().toLowerCase() === fullEmail)?.id;
+      const matchedUser = inferredUserId
+        ? loadedUsers.find((u) => u.id === inferredUserId)
+        : undefined;
       setEditingInstructor(full);
       setAvatarUrl(full.avatarUrl || '');
       form.setFieldsValue({
         id: full.id,
-        userId: full.userId,
-        name: full.name,
-        title: full.title,
-        email: full.email,
-        phone: full.phone,
-        affiliation: full.affiliation,
-        avatarUrl: full.avatarUrl,
-        bio: full.bio,
+        userId: inferredUserId,
+        name: full.name || matchedUser?.name,
+        title: full.title ?? undefined,
+        tagline: full.tagline ?? undefined,
+        email: full.email || matchedUser?.email,
+        phone: full.phone ?? undefined,
+        affiliation: full.affiliation ?? undefined,
+        avatarUrl: full.avatarUrl ?? undefined,
+        bio: full.bio ?? undefined,
         specialties: full.specialties?.join(', '),
+        awards: full.awards?.join(', '),
         degrees: full.degrees || [],
         careers: full.careers || [],
         publications: full.publications || [],
@@ -359,22 +488,42 @@ export default function InstructorsPage() {
   };
 
   const handleSubmit = async () => {
+    if (!canUpsertInstructorBySite) {
+      message.warning('사이트 권한 설정에 따라 강사 등록/수정 기능이 비활성화되었습니다.');
+      return;
+    }
     try {
       const values = await form.validateFields();
+      const normalizedEmail = (values.email || '').toString().trim().toLowerCase();
+      const resolvedUserId =
+        editingInstructor?.userId ||
+        values.userId ||
+        users.find((u) => u.email?.trim().toLowerCase() === normalizedEmail)?.id;
+
+      if (isAdminOperator && !resolvedUserId) {
+        message.error('연결할 사용자를 선택해주세요.');
+        return;
+      }
+
       const specialties = values.specialties
         ? values.specialties.split(',').map((s: string) => s.trim()).filter(Boolean)
         : [];
+      const awards = values.awards
+        ? values.awards.split(',').map((s: string) => s.trim()).filter(Boolean)
+        : [];
 
       const data: Record<string, unknown> = {
-        userId: values.userId,
+        userId: resolvedUserId,
         name: values.name,
-        title: values.title,
-        email: values.email,
-        phone: values.phone,
-        affiliation: values.affiliation,
+        title: toOptionalString(values.title),
+        tagline: toOptionalString(values.tagline),
+        email: toOptionalString(values.email),
+        phone: toOptionalString(values.phone),
+        affiliation: toOptionalString(values.affiliation),
         avatarUrl: avatarUrl || undefined,
-        bio: values.bio,
+        bio: toOptionalString(values.bio),
         specialties,
+        awards,
         degrees: (values.degrees || []).filter((d: Degree) => d?.name || d?.school),
         careers: (values.careers || []).filter((c: Career) => c?.company || c?.role),
         publications: (values.publications || []).filter((p: Publication) => p?.title),
@@ -409,6 +558,74 @@ export default function InstructorsPage() {
     email: { title: '이메일', dataIndex: 'email', key: 'email' },
     phone: { title: '전화번호', dataIndex: 'phone', key: 'phone' },
     affiliation: { title: '소속', dataIndex: 'affiliation', key: 'affiliation' },
+    specialties: {
+      title: '전문분야',
+      dataIndex: 'specialties',
+      key: 'specialties',
+      width: 220,
+      render: (values?: string[]) => {
+        const latest = pickLatestText(values);
+        return latest || '-';
+      },
+    },
+    degrees: {
+      title: '학위',
+      dataIndex: 'degrees',
+      key: 'degrees',
+      width: 220,
+      render: (values?: Degree[]) => {
+        const latest = pickLatestByScore(values, (item) => extractYearScore(item.year));
+        if (!latest) return '-';
+        return [latest.name, latest.school, latest.major, latest.year]
+          .filter(Boolean)
+          .join(' / ');
+      },
+    },
+    careers: {
+      title: '주요경력',
+      dataIndex: 'careers',
+      key: 'careers',
+      width: 240,
+      render: (values?: Career[]) => {
+        const latest = pickLatestByScore(values, (item) => extractYearScore(item.period));
+        if (!latest) return '-';
+        return [latest.company, latest.role, latest.period].filter(Boolean).join(' / ');
+      },
+    },
+    publications: {
+      title: '출판/논문',
+      dataIndex: 'publications',
+      key: 'publications',
+      width: 220,
+      render: (values?: Publication[]) => {
+        const latest = pickLatestByScore(values, (item) => extractYearScore(item.year));
+        if (!latest) return '-';
+        return [latest.type ? `[${latest.type}]` : '', latest.title, latest.year]
+          .filter(Boolean)
+          .join(' ');
+      },
+    },
+    certifications: {
+      title: '자격증',
+      dataIndex: 'certifications',
+      key: 'certifications',
+      width: 220,
+      render: (values?: Certification[]) => {
+        const latest = pickLatestByScore(values, (item) => extractDateScore(item.date));
+        if (!latest) return '-';
+        return [latest.name, latest.issuer, latest.date].filter(Boolean).join(' / ');
+      },
+    },
+    awards: {
+      title: '수상',
+      dataIndex: 'awards',
+      key: 'awards',
+      width: 180,
+      render: (values?: string[]) => {
+        const latest = pickLatestText(values);
+        return latest || '-';
+      },
+    },
     avatarUrl: {
       title: '프로필 이미지',
       dataIndex: 'avatarUrl',
@@ -453,20 +670,60 @@ export default function InstructorsPage() {
             icon={<EditOutlined />}
             size="small"
             onClick={() => handleEdit(record)}
+            disabled={!canUpsertInstructorBySite}
           />
         </Space>
       ),
     },
   };
+
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    const defaultKeys = DEFAULT_COLUMNS.instructors
+      .map((column) => column.columnKey)
+      .filter((key) => key !== NO_COLUMN_KEY);
+    const mapKeys = Object.keys(columnMap).filter((key) => key !== NO_COLUMN_KEY);
+    const missingInMap = defaultKeys.filter((key) => !mapKeys.includes(key));
+    const missingInDefaults = mapKeys.filter((key) => !defaultKeys.includes(key));
+    if (missingInMap.length > 0 || missingInDefaults.length > 0) {
+      console.warn('[instructors] column/default mismatch', {
+        missingInMap,
+        missingInDefaults,
+      });
+    }
+  }, [columnMap]);
+
   const columns = buildColumns<Instructor>(columnConfigs, columnMap);
 
   const sectionStyle = { marginBottom: 0 };
-  const dividerStyle = { margin: '16px 0 8px' };
+
+  if (!canAccessInstructorsMenu) {
+    return (
+      <Result
+        status="403"
+        title="메뉴 비활성화"
+        subTitle="사이트 관리의 권한관리에서 강사 관리 메뉴가 비활성화되었습니다."
+      />
+    );
+  }
 
   return (
     <div>
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between' }}>
-        <h2 style={{ margin: 0 }}>강사 관리</h2>
+      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Space size={8} align="center">
+          <h2 style={{ margin: 0 }}>강사 관리</h2>
+          {user?.role === 'admin' && (
+            <Tooltip title="목차 설정으로 이동">
+              <Button
+                type="text"
+                size="small"
+                icon={<SettingOutlined />}
+                onClick={() => navigate('/admin/site-settings?tab=outline&tableKey=instructors')}
+                style={{ padding: 4 }}
+              />
+            </Tooltip>
+          )}
+        </Space>
         <Space>
           <Button icon={<ReloadOutlined />} onClick={loadInstructors} loading={loading}>
             새로고침
@@ -476,7 +733,12 @@ export default function InstructorsPage() {
             onSearch={(id) => id && fetchMutation.mutate(id)}
             style={{ width: 250 }}
           />
-          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={handleCreate}
+            disabled={!canUpsertInstructorBySite}
+          >
             새 강사
           </Button>
         </Space>
@@ -510,7 +772,7 @@ export default function InstructorsPage() {
         <Form
           form={form}
           layout="vertical"
-          initialValues={{ degrees: [], careers: [], publications: [], certifications: [] }}
+          initialValues={{ degrees: [], careers: [], publications: [], certifications: [], awards: '' }}
           onValuesChange={(_, allValues) => {
             if (!isModalOpen) return;
             saveDraft(allValues);
@@ -519,23 +781,7 @@ export default function InstructorsPage() {
           <Form.Item name="id" hidden><Input /></Form.Item>
           {/* 기본 정보 */}
           <div style={{ display: 'flex', gap: 24 }}>
-            <div style={{ textAlign: 'center' }}>
-              <Upload
-                showUploadList={false}
-                beforeUpload={(file) => { handleAvatarUpload({ file }); return false; }}
-                accept="image/*"
-              >
-                <div style={{ cursor: 'pointer' }}>
-                  {avatarUrl ? (
-                    <Avatar size={100} src={`${SERVER_URL}${avatarUrl}`} />
-                  ) : (
-                    <Avatar size={100} icon={<UserOutlined />} />
-                  )}
-                  <div style={{ marginTop: 8, color: '#1890ff', fontSize: 12 }}>사진 업로드</div>
-                </div>
-              </Upload>
-              <Form.Item name="avatarUrl" hidden><Input /></Form.Item>
-            </div>
+            <AvatarUploadField form={form} onUpload={(file) => handleAvatarUpload({ file })} serverUrl={SERVER_URL} />
             <div style={{ flex: 1 }}>
               {isAdminOperator ? (
                 <Form.Item
@@ -601,135 +847,27 @@ export default function InstructorsPage() {
           <Form.Item name="affiliation" label="소속">
             <Input />
           </Form.Item>
+          <Form.Item name="tagline" label="한줄 소개">
+            <Input placeholder="예: 조직성과를 만드는 실무형 교육 전문가" />
+          </Form.Item>
           <Form.Item name="specialties" label="전문분야 (쉼표로 구분)">
             <Input placeholder="예: 리더십, 커뮤니케이션, 조직문화" />
+          </Form.Item>
+          <Form.Item name="awards" label="수상 (쉼표로 구분)">
+            <Input placeholder="예: 올해의 강사상, 교육혁신상" />
           </Form.Item>
           <Form.Item name="bio" label="자기소개">
             <Input.TextArea rows={3} placeholder="강사 자기소개를 입력하세요 (선택)" />
           </Form.Item>
 
-          {/* 학위 */}
-          <Divider orientation="left" style={dividerStyle}>학위</Divider>
-          <Form.List name="degrees">
-            {(fields, { add, remove }) => (
-              <>
-                {fields.map(({ key, name, ...restField }) => (
-                  <div key={key} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 8 }}>
-                    <Form.Item {...restField} name={[name, 'name']} style={{ flex: 1, marginBottom: 0 }}>
-                      <Select placeholder="학위" options={[
-                        { value: '학사', label: '학사' },
-                        { value: '석사', label: '석사' },
-                        { value: '박사', label: '박사' },
-                        { value: '기타', label: '기타' },
-                      ]} />
-                    </Form.Item>
-                    <Form.Item {...restField} name={[name, 'school']} style={{ flex: 2, marginBottom: 0 }}>
-                      <Input placeholder="학교" />
-                    </Form.Item>
-                    <Form.Item {...restField} name={[name, 'major']} style={{ flex: 2, marginBottom: 0 }}>
-                      <Input placeholder="전공" />
-                    </Form.Item>
-                    <Form.Item {...restField} name={[name, 'year']} style={{ flex: 1, marginBottom: 0 }}>
-                      <Input placeholder="연도" />
-                    </Form.Item>
-                    <DegreeFileUpload name={name} form={form} onUpload={handleUploadFile} />
-                    <MinusCircleOutlined onClick={() => remove(name)} style={{ marginTop: 8, color: '#999' }} />
-                  </div>
-                ))}
-                <Button type="dashed" onClick={() => add()} block icon={<PlusOutlined />} size="small">
-                  학위 추가
-                </Button>
-              </>
-            )}
-          </Form.List>
-
-          {/* 주요경력 */}
-          <Divider orientation="left" style={dividerStyle}>주요경력</Divider>
-          <Form.List name="careers">
-            {(fields, { add, remove }) => (
-              <>
-                {fields.map(({ key, name, ...restField }) => (
-                  <div key={key} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 8 }}>
-                    <Form.Item {...restField} name={[name, 'company']} style={{ flex: 2, marginBottom: 0 }}>
-                      <Input placeholder="회사/기관" />
-                    </Form.Item>
-                    <Form.Item {...restField} name={[name, 'role']} style={{ flex: 2, marginBottom: 0 }}>
-                      <Input placeholder="직책/역할" />
-                    </Form.Item>
-                    <Form.Item {...restField} name={[name, 'period']} style={{ flex: 1.5, marginBottom: 0 }}>
-                      <Input placeholder="기간 (예: 2018~2023)" />
-                    </Form.Item>
-                    <Form.Item {...restField} name={[name, 'description']} style={{ flex: 2, marginBottom: 0 }}>
-                      <Input placeholder="설명 (선택)" />
-                    </Form.Item>
-                    <MinusCircleOutlined onClick={() => remove(name)} style={{ marginTop: 8, color: '#999' }} />
-                  </div>
-                ))}
-                <Button type="dashed" onClick={() => add()} block icon={<PlusOutlined />} size="small">
-                  경력 추가
-                </Button>
-              </>
-            )}
-          </Form.List>
-
-          {/* 출판/논문 */}
-          <Divider orientation="left" style={dividerStyle}>출판/논문</Divider>
-          <Form.List name="publications">
-            {(fields, { add, remove }) => (
-              <>
-                {fields.map(({ key, name, ...restField }) => (
-                  <div key={key} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 8 }}>
-                    <Form.Item {...restField} name={[name, 'title']} style={{ flex: 3, marginBottom: 0 }}>
-                      <Input placeholder="제목" />
-                    </Form.Item>
-                    <Form.Item {...restField} name={[name, 'type']} style={{ flex: 1, marginBottom: 0 }}>
-                      <Select placeholder="구분" options={[
-                        { value: '출판', label: '출판' },
-                        { value: '논문', label: '논문' },
-                      ]} />
-                    </Form.Item>
-                    <Form.Item {...restField} name={[name, 'year']} style={{ flex: 1, marginBottom: 0 }}>
-                      <Input placeholder="연도" />
-                    </Form.Item>
-                    <Form.Item {...restField} name={[name, 'publisher']} style={{ flex: 2, marginBottom: 0 }}>
-                      <Input placeholder="출판사/학회" />
-                    </Form.Item>
-                    <MinusCircleOutlined onClick={() => remove(name)} style={{ marginTop: 8, color: '#999' }} />
-                  </div>
-                ))}
-                <Button type="dashed" onClick={() => add()} block icon={<PlusOutlined />} size="small">
-                  출판/논문 추가
-                </Button>
-              </>
-            )}
-          </Form.List>
-
-          {/* 자격증 */}
-          <Divider orientation="left" style={dividerStyle}>자격증</Divider>
-          <Form.List name="certifications">
-            {(fields, { add, remove }) => (
-              <>
-                {fields.map(({ key, name, ...restField }) => (
-                  <div key={key} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 8 }}>
-                    <Form.Item {...restField} name={[name, 'name']} style={{ flex: 2, marginBottom: 0 }}>
-                      <Input placeholder="자격증명" />
-                    </Form.Item>
-                    <Form.Item {...restField} name={[name, 'issuer']} style={{ flex: 2, marginBottom: 0 }}>
-                      <Input placeholder="발급기관" />
-                    </Form.Item>
-                    <Form.Item {...restField} name={[name, 'date']} style={{ flex: 1.5, marginBottom: 0 }}>
-                      <Input placeholder="취득일 (예: 2023-05)" />
-                    </Form.Item>
-                    <CertFileUpload name={name} form={form} onUpload={handleUploadFile} />
-                    <MinusCircleOutlined onClick={() => remove(name)} style={{ marginTop: 8, color: '#999' }} />
-                  </div>
-                ))}
-                <Button type="dashed" onClick={() => add()} block icon={<PlusOutlined />} size="small">
-                  자격증 추가
-                </Button>
-              </>
-            )}
-          </Form.List>
+          <InstructorCareerSection
+            form={form}
+            mode="upload"
+            onUploadFile={handleUploadFile}
+            defaultOpen={true}
+            titlePlacement="start"
+            compactAddButton={true}
+          />
         </Form>
       </Modal>
 
@@ -755,24 +893,24 @@ export default function InstructorsPage() {
       >
         {viewInstructor && (
           <div>
-            <div style={{ display: 'flex', gap: 16, marginBottom: 16 }}>
+            <div style={{ marginBottom: 16 }}>
               {viewInstructor.avatarUrl ? (
                 <Avatar size={80} src={`${SERVER_URL}${viewInstructor.avatarUrl}`} />
               ) : (
                 <Avatar size={80} icon={<UserOutlined />} />
               )}
-              <div>
-                <h3 style={{ margin: 0 }}>{viewInstructor.name}</h3>
-                <div style={{ color: '#666' }}>{viewInstructor.title || ''}</div>
-                <div style={{ color: '#999', fontSize: 12 }}>{viewInstructor.affiliation || ''}</div>
-              </div>
             </div>
+
+            <p><strong>이름:</strong> {viewInstructor.name}</p>
+            <p><strong>직함:</strong> {viewInstructor.title || '-'}</p>
+            <p><strong>소속:</strong> {viewInstructor.affiliation || '-'}</p>
 
             <p><strong>ID:</strong> {viewInstructor.id}</p>
             <p><strong>사용자 ID:</strong> {viewInstructor.userId || '-'}</p>
             <p><strong>이메일:</strong> {viewInstructor.email || '-'}</p>
             <p><strong>전화번호:</strong> {viewInstructor.phone || '-'}</p>
             <p><strong>전문분야:</strong> {viewInstructor.specialties?.join(', ') || '-'}</p>
+            <p><strong>수상:</strong> {viewInstructor.awards?.join(', ') || '-'}</p>
             {viewInstructor.bio && <p><strong>자기소개:</strong> {viewInstructor.bio}</p>}
             <p><strong>등록자:</strong> {viewInstructor.createdBy || '-'}</p>
             <p>
@@ -784,7 +922,7 @@ export default function InstructorsPage() {
 
             {Array.isArray(viewInstructor.degrees) && viewInstructor.degrees.length > 0 && (
               <>
-                <Divider orientation="left" plain>학위</Divider>
+                <Divider titlePlacement="start" plain>학위</Divider>
                 {viewInstructor.degrees.map((d, i) => (
                   <p key={i}>
                     {d.name} - {d.school} {d.major} ({d.year})
@@ -796,7 +934,7 @@ export default function InstructorsPage() {
 
             {Array.isArray(viewInstructor.careers) && viewInstructor.careers.length > 0 && (
               <>
-                <Divider orientation="left" plain>주요경력</Divider>
+                <Divider titlePlacement="start" plain>주요경력</Divider>
                 {viewInstructor.careers.map((c, i) => (
                   <p key={i}>{c.company} / {c.role} ({c.period}){c.description ? ` - ${c.description}` : ''}</p>
                 ))}
@@ -805,7 +943,7 @@ export default function InstructorsPage() {
 
             {Array.isArray(viewInstructor.publications) && viewInstructor.publications.length > 0 && (
               <>
-                <Divider orientation="left" plain>출판/논문</Divider>
+                <Divider titlePlacement="start" plain>출판/논문</Divider>
                 {viewInstructor.publications.map((p, i) => (
                   <p key={i}>[{p.type}] {p.title}{p.publisher ? ` - ${p.publisher}` : ''}{p.year ? ` (${p.year})` : ''}</p>
                 ))}
@@ -814,7 +952,7 @@ export default function InstructorsPage() {
 
             {Array.isArray(viewInstructor.certifications) && viewInstructor.certifications.length > 0 && (
               <>
-                <Divider orientation="left" plain>자격증</Divider>
+                <Divider titlePlacement="start" plain>자격증</Divider>
                 {viewInstructor.certifications.map((c, i) => (
                   <p key={i}>
                     {c.name}{c.issuer ? ` (${c.issuer})` : ''}{c.date ? ` - ${c.date}` : ''}
@@ -826,66 +964,6 @@ export default function InstructorsPage() {
           </div>
         )}
       </Modal>
-    </div>
-  );
-}
-
-// 학위 첨부파일 업로드 컴포넌트
-function DegreeFileUpload({ name, form, onUpload }: {
-  name: number;
-  form: ReturnType<typeof Form.useForm>[0];
-  onUpload: (file: RcFile) => Promise<string>;
-}) {
-  const fileUrl = Form.useWatch(['degrees', name, 'fileUrl'], form);
-  return (
-    <div style={{ marginBottom: 0 }}>
-      <Form.Item name={[name, 'fileUrl']} hidden><Input /></Form.Item>
-      <Upload
-        showUploadList={false}
-        accept="image/*,.pdf"
-        beforeUpload={async (file) => {
-          try {
-            const url = await onUpload(file);
-            form.setFieldValue(['degrees', name, 'fileUrl'], url);
-            message.success('첨부 완료');
-          } catch { message.error('업로드 실패'); }
-          return false;
-        }}
-      >
-        <Button size="small" icon={<UploadOutlined />} type={fileUrl ? 'primary' : 'default'}>
-          {fileUrl ? '첨부됨' : '첨부'}
-        </Button>
-      </Upload>
-    </div>
-  );
-}
-
-// 자격증 사본 업로드 컴포넌트
-function CertFileUpload({ name, form, onUpload }: {
-  name: number;
-  form: ReturnType<typeof Form.useForm>[0];
-  onUpload: (file: RcFile) => Promise<string>;
-}) {
-  const fileUrl = Form.useWatch(['certifications', name, 'fileUrl'], form);
-  return (
-    <div style={{ marginBottom: 0 }}>
-      <Form.Item name={[name, 'fileUrl']} hidden><Input /></Form.Item>
-      <Upload
-        showUploadList={false}
-        accept="image/*,.pdf"
-        beforeUpload={async (file) => {
-          try {
-            const url = await onUpload(file);
-            form.setFieldValue(['certifications', name, 'fileUrl'], url);
-            message.success('사본 첨부 완료');
-          } catch { message.error('업로드 실패'); }
-          return false;
-        }}
-      >
-        <Button size="small" icon={<UploadOutlined />} type={fileUrl ? 'primary' : 'default'}>
-          {fileUrl ? '첨부됨' : '사본'}
-        </Button>
-      </Upload>
     </div>
   );
 }

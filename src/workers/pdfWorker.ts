@@ -6,6 +6,20 @@ import Handlebars from 'handlebars';
 
 Handlebars.registerHelper('plus1', (val: number) => val + 1);
 
+function formatTimestamp(date: Date): string {
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const dd = String(date.getDate()).padStart(2, '0');
+  const hh = String(date.getHours()).padStart(2, '0');
+  const mi = String(date.getMinutes()).padStart(2, '0');
+  const ss = String(date.getSeconds()).padStart(2, '0');
+  return `${yyyy}${mm}${dd}_${hh}${mi}${ss}`;
+}
+
+function sanitizeFileName(name: string): string {
+  return name.replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim();
+}
+
 // Redis connection for BullMQ
 const connection = {
   host: process.env.REDIS_HOST || 'localhost',
@@ -27,8 +41,8 @@ const pdfWorker = new Worker(
 
     try {
       // 1. Fetch Template
-      const template = await prisma.template.findUnique({
-        where: { id: templateId },
+      const template = await prisma.template.findFirst({
+        where: { id: templateId, deletedAt: null },
         select: { html: true, css: true },
       });
       if (!template) {
@@ -38,12 +52,18 @@ const pdfWorker = new Worker(
       // 2. Fetch Data (Course / Schedule / Instructor Profile)
       let data: any = {};
       let pdfFileName: string;
+      let defaultLabel: string | undefined;
+      const timestamp = formatTimestamp(new Date());
 
       if (courseId) {
         const course = await prisma.course.findUnique({
           where: { id: courseId, deletedAt: null },
           include: {
-            Lectures: { where: { deletedAt: null }, orderBy: { order: 'asc' } },
+            CourseLectures: {
+              where: { Lecture: { deletedAt: null } },
+              include: { Lecture: true },
+              orderBy: { order: 'asc' },
+            },
             Schedules: { where: { deletedAt: null }, include: { Instructor: true } },
             CourseInstructors: { include: { Instructor: true } },
           },
@@ -58,19 +78,28 @@ const pdfWorker = new Worker(
         };
         // Keep worker render payload aligned with UI preview payload.
         data.instructors = instructors;
-        data.lectures = course.Lectures || [];
-        data.modules = course.Lectures || [];
+        // Support templates using either {{course.content}} or {{content}}.
+        data.content = course.content || '';
+        const courseLectures = (course.CourseLectures || []).map((link) => ({
+          ...link.Lecture,
+          order: link.order,
+        }));
+        data.lectures = courseLectures;
+        data.modules = courseLectures;
         data.schedules = course.Schedules || [];
-        data.courseLectures = course.Lectures || [];
+        data.courseLectures = courseLectures;
         data.courseSchedules = course.Schedules || [];
-        pdfFileName = `course-${courseId}-${renderJobId}.pdf`;
+        defaultLabel = `${course.title}_${timestamp}`;
+        pdfFileName = `${sanitizeFileName(defaultLabel)}_${renderJobId}.pdf`;
       } else if (scheduleId) {
         data.schedule = await prisma.courseSchedule.findUnique({
           where: { id: scheduleId, deletedAt: null },
           include: { Course: true, Instructor: true },
         });
         if (!data.schedule) throw new Error(`Schedule not found: ${scheduleId}`);
-        pdfFileName = `schedule-${scheduleId}-${renderJobId}.pdf`;
+        const scheduleTitle = data.schedule.Course?.title || `schedule_${scheduleId}`;
+        defaultLabel = `${scheduleTitle}_${timestamp}`;
+        pdfFileName = `${sanitizeFileName(defaultLabel)}_${renderJobId}.pdf`;
       } else if (profileId) {
         const profile = await prisma.instructorProfile.findUnique({
           where: { id: profileId },
@@ -102,7 +131,9 @@ const pdfWorker = new Worker(
         data.courses = instructor?.CourseInstructors?.map((ci) => ci.Course) || [];
         data.schedules = instructor?.Schedules || [];
 
-        pdfFileName = `instructor-profile-${profileId}-${renderJobId}.pdf`;
+        const profileName = mergedInstructor?.name || `profile_${profileId}`;
+        defaultLabel = `${profileName}_${timestamp}`;
+        pdfFileName = `${sanitizeFileName(defaultLabel)}_${renderJobId}.pdf`;
       } else {
         throw new Error('No target provided for rendering.');
       }
@@ -146,7 +177,7 @@ const pdfWorker = new Worker(
             templateId: completedJob.templateId,
             targetType: completedJob.targetType || targetType || 'unknown',
             targetId: completedJob.targetId || targetId || '',
-            label: label || undefined,
+            label: label || defaultLabel || undefined,
             pdfUrl,
           },
         });

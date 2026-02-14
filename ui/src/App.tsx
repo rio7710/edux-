@@ -9,7 +9,6 @@ import Layout from './components/Layout';
 import CoursesPage from './pages/CoursesPage';
 import InstructorsPage from './pages/InstructorsPage';
 import TemplatesHubPage from './pages/TemplatesHubPage';
-import RenderPage from './pages/RenderPage';
 import { TestEchoPage } from './pages/TestEchoPage';
 import DashboardPage from './pages/DashboardPage';
 import LoginPage from './pages/LoginPage';
@@ -18,7 +17,10 @@ import ProfilePage from './pages/ProfilePage';
 import UsersPage from './pages/UsersPage';
 import SiteSettingsPage from './pages/SiteSettingsPage';
 import MyDocumentsPage from './pages/MyDocumentsPage';
+import GroupsPage from './pages/GroupsPage';
+import FeatureSharesPage from './pages/FeatureSharesPage';
 import { mcpClient } from './api/mcpClient';
+import McpRequestMonitor from './components/McpRequestMonitor';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -43,6 +45,7 @@ function AppContent() {
 
   return (
     <BrowserRouter>
+      <McpRequestMonitor />
       <Routes>
         {/* Auth routes (no layout) */}
         <Route path="/login" element={<LoginPage />} />
@@ -55,12 +58,21 @@ function AppContent() {
           <Route path="courses" element={<CoursesPage />} />
           <Route path="instructors" element={<InstructorsPage />} />
           <Route path="templates" element={<TemplatesHubPage />} />
-          <Route path="render" element={<RenderPage />} />
           <Route path="documents" element={<MyDocumentsPage />} />
+          <Route path="feature-shares" element={<FeatureSharesPage />} />
           <Route path="test-echo" element={<TestEchoPage />} />
           <Route path="profile" element={<ProfilePage />} />
           <Route path="admin/users" element={<UsersPage />} />
+          <Route path="admin/groups" element={<GroupsPage />} />
+          <Route
+            path="admin/permissions"
+            element={<Navigate to="/admin/site-settings?tab=permissions" replace />}
+          />
           <Route path="admin/site-settings" element={<SiteSettingsPage />} />
+          <Route
+            path="admin/board"
+            element={<Navigate to="/admin/site-settings?tab=board" replace />}
+          />
         </Route>
       </Routes>
     </BrowserRouter>

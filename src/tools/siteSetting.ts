@@ -6,6 +6,10 @@ export const siteSettingGetSchema = {
   token: z.string().describe("액세스 토큰"),
   key: z.string().describe("설정 키"),
 };
+export const siteSettingGetManySchema = {
+  token: z.string().describe("액세스 토큰"),
+  keys: z.array(z.string()).min(1).max(100).describe("설정 키 목록"),
+};
 
 export const siteSettingUpsertSchema = {
   token: z.string().describe("액세스 토큰 (admin/operator)"),
@@ -46,6 +50,54 @@ export async function siteSettingGetHandler(args: {
     const message = error instanceof Error ? error.message : "Unknown error";
     return {
       content: [{ type: "text" as const, text: `설정 조회 실패: ${message}` }],
+      isError: true,
+    };
+  }
+}
+
+export async function siteSettingGetManyHandler(args: {
+  token: string;
+  keys: string[];
+}) {
+  try {
+    verifyAnyUser(args.token);
+    const keys = Array.from(new Set((args.keys || []).map((key) => key.trim()).filter(Boolean)));
+    if (keys.length === 0) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify({ items: {}, keys: [] }),
+          },
+        ],
+      };
+    }
+
+    const items = await prisma.appSetting.findMany({
+      where: { key: { in: keys } },
+      select: { key: true, value: true },
+    });
+
+    const valueByKey: Record<string, unknown> = {};
+    keys.forEach((key) => {
+      valueByKey[key] = null;
+    });
+    items.forEach((item) => {
+      valueByKey[item.key] = item.value ?? null;
+    });
+
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: JSON.stringify({ items: valueByKey, keys }),
+        },
+      ],
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    return {
+      content: [{ type: "text" as const, text: `설정 다건 조회 실패: ${message}` }],
       isError: true,
     };
   }

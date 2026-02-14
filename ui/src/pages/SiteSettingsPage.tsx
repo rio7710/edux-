@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Card, Divider, Result, Select, Space, Switch, Table, Tag, Input, Tabs, InputNumber, Upload, message } from 'antd';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Alert, Button, Card, Divider, Result, Select, Space, Switch, Table, Tag, Input, Tabs, InputNumber, Upload, message, Collapse } from 'antd';
 import { ArrowUpOutlined, ArrowDownOutlined, SaveOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../api/mcpClient';
@@ -7,6 +7,15 @@ import { NO_COLUMN_KEY, normalizeConfig } from '../utils/tableConfig';
 import type { ColumnConfig } from '../utils/tableConfig';
 import { DEFAULT_COLUMNS } from '../utils/tableDefaults';
 import type { RcFile } from 'antd/es/upload';
+import type { ColumnsType } from 'antd/es/table';
+import { useLocation } from 'react-router-dom';
+import BoardAdminPage from './BoardAdminPage';
+import {
+  readSitePermissionSnapshot,
+  type SitePermissionRole,
+  SITE_PERMISSION_STORAGE_KEYS,
+  SITE_PERMISSIONS_UPDATED_EVENT,
+} from '../utils/sitePermissions';
 
 const TABLE_OPTIONS = [
   { value: 'courses', label: '코스' },
@@ -17,13 +26,407 @@ const TABLE_OPTIONS = [
   { value: 'lectures', label: '강의' },
 ];
 
+const ROLE_DEFINITIONS = [
+  { role: 'admin', description: '시스템 전체 제어', summary: '모든 데이터/설정/사용자 관리' },
+  { role: 'operator', description: '운영 업무 담당', summary: '코스/일정 관리, 사용자 조회/통계' },
+  { role: 'editor', description: '콘텐츠 편집', summary: '코스/강의/템플릿/스케줄 생성/수정' },
+  { role: 'instructor', description: '강사 전용', summary: '자신 소유 코스/강의/일정 CRUD' },
+  { role: 'viewer', description: '읽기 전용', summary: '`*.get`, `*.list` 호출 중심' },
+  { role: 'guest', description: '최소 권한', summary: '인증 전용 뷰/체험용' },
+];
+
+type PermissionMatrixItem = {
+  tool: string;
+  desc: string;
+  admin: string;
+  operator: string;
+  editor: string;
+  instructor: string;
+  viewer: string;
+  guest: string;
+  isNew?: boolean;
+  planned?: boolean;
+  exclusiveRole?: string;
+};
+
+type PermissionMatrixFeature = {
+  title: string;
+  items: PermissionMatrixItem[];
+};
+
+type PermissionMatrixSection = {
+  menuKey: string;
+  features: PermissionMatrixFeature[];
+};
+
+const PERMISSION_SECTIONS: PermissionMatrixSection[] = [
+  {
+    menuKey: 'dashboard',
+    features: [
+      {
+        title: '대시보드',
+        items: [
+          {
+            tool: 'dashboard.read',
+            desc: '대시보드 접근',
+            admin: 'O',
+            operator: 'O',
+            editor: 'O',
+            instructor: 'O',
+            viewer: 'O',
+            guest: 'X',
+            isNew: true,
+          },
+        ],
+      },
+    ],
+  },
+  {
+    menuKey: 'courses',
+    features: [
+      {
+        title: '코스',
+        items: [
+          { tool: 'course.upsert', desc: '코스 생성/수정', admin: 'O', operator: 'O', editor: 'O', instructor: 'O (본인)', viewer: 'X', guest: 'X' },
+          { tool: 'course.get', desc: '코스 단건 조회', admin: 'O', operator: 'O', editor: 'O', instructor: 'O', viewer: 'O', guest: 'X' },
+          { tool: 'course.list', desc: '코스 목록 조회', admin: 'O', operator: 'O', editor: 'O', instructor: 'O', viewer: 'O', guest: 'X' },
+          { tool: 'course.listMine', desc: '내 코스 목록 조회', admin: 'O (본인)', operator: 'O (본인)', editor: 'O (본인)', instructor: 'O (본인)', viewer: 'O (본인)', guest: 'O (본인)', isNew: true },
+          { tool: 'course.delete', desc: '코스 삭제(소프트)', admin: 'O', operator: 'O', editor: 'O', instructor: 'O (본인)', viewer: 'X', guest: 'X' },
+        ],
+      },
+      {
+        title: '강의',
+        items: [
+          { tool: 'lecture.upsert', desc: '강의 생성/수정', admin: 'O', operator: 'O', editor: 'O', instructor: 'O (본인)', viewer: 'X', guest: 'X' },
+          { tool: 'lecture.get', desc: '강의 단건 조회', admin: 'O', operator: 'O', editor: 'O', instructor: 'O', viewer: 'O', guest: 'X' },
+          { tool: 'lecture.list', desc: '강의 목록 조회', admin: 'O', operator: 'O', editor: 'O', instructor: 'O', viewer: 'O', guest: 'X' },
+          { tool: 'lecture.listMine', desc: '내 강의 목록 조회', admin: 'O (본인)', operator: 'O (본인)', editor: 'O (본인)', instructor: 'O (본인)', viewer: 'O (본인)', guest: 'O (본인)', isNew: true, planned: true },
+          { tool: 'lecture.delete', desc: '강의 삭제(소프트)', admin: 'O', operator: 'O', editor: 'O', instructor: 'O (본인)', viewer: 'X', guest: 'X' },
+        ],
+      },
+      {
+        title: '코스 공유',
+        items: [
+          { tool: 'course.shareInvite', desc: '코스 공유 초대 생성', admin: 'O', operator: 'O', editor: 'O', instructor: 'O (본인)', viewer: 'X', guest: 'X' },
+          { tool: 'course.shareRespond', desc: '코스 공유 수락/거절', admin: 'O (본인)', operator: 'O (본인)', editor: 'O (본인)', instructor: 'O (본인)', viewer: 'O (본인)', guest: 'X' },
+          { tool: 'course.shareListReceived', desc: '내 코스 공유 요청 목록', admin: 'O (본인)', operator: 'O (본인)', editor: 'O (본인)', instructor: 'O (본인)', viewer: 'O (본인)', guest: 'X' },
+          { tool: 'course.shareListForCourse', desc: '코스별 공유 대상 목록', admin: 'O', operator: 'O', editor: 'O', instructor: 'O (본인)', viewer: 'X', guest: 'X' },
+          { tool: 'course.shareRevoke', desc: '코스 공유 해제', admin: 'O', operator: 'O', editor: 'O', instructor: 'O (본인)', viewer: 'X', guest: 'X' },
+          { tool: 'course.shareLeave', desc: '공유받은 코스 공유 해제', admin: 'O (본인)', operator: 'O (본인)', editor: 'O (본인)', instructor: 'O (본인)', viewer: 'O (본인)', guest: 'X' },
+          { tool: 'course.shareTargets', desc: '공유 대상 사용자 목록', admin: 'O', operator: 'O', editor: 'O', instructor: 'O', viewer: 'X', guest: 'X' },
+        ],
+      },
+    ],
+  },
+  {
+    menuKey: 'instructors',
+    features: [
+      {
+        title: '강사',
+        items: [
+          { tool: 'instructor.upsert', desc: '강사 생성/수정', admin: 'O', operator: 'O', editor: 'O', instructor: 'X', viewer: 'X', guest: 'X' },
+          { tool: 'instructor.get', desc: '강사 단건 조회', admin: 'O', operator: 'O', editor: 'O', instructor: 'O', viewer: 'O', guest: 'X' },
+          { tool: 'instructor.getByUser', desc: '내 강사 정보 조회', admin: 'O (본인)', operator: 'O (본인)', editor: 'O (본인)', instructor: 'O (본인)', viewer: 'O (본인)', guest: 'X' },
+          { tool: 'instructor.list', desc: '강사 목록 조회', admin: 'O', operator: 'O', editor: 'O', instructor: 'O', viewer: 'O', guest: 'X' },
+          { tool: 'instructor.delete', desc: '강사 삭제(소프트)', admin: 'O', operator: 'O', editor: 'O', instructor: 'X', viewer: 'X', guest: 'X', planned: true },
+        ],
+      },
+      {
+        title: '일정',
+        items: [
+          { tool: 'schedule.upsert', desc: '일정 생성/수정', admin: 'O', operator: 'O', editor: 'O', instructor: 'O (본인)', viewer: 'X', guest: 'X' },
+          { tool: 'schedule.get', desc: '일정 단건 조회', admin: 'O', operator: 'O', editor: 'O', instructor: 'O', viewer: 'O', guest: 'X' },
+          { tool: 'schedule.list', desc: '일정 목록 조회', admin: 'O', operator: 'O', editor: 'O', instructor: 'O', viewer: 'O', guest: 'X' },
+          { tool: 'schedule.listMine', desc: '내 일정 목록 조회', admin: 'O (본인)', operator: 'O (본인)', editor: 'O (본인)', instructor: 'O (본인)', viewer: 'O (본인)', guest: 'O (본인)', isNew: true, planned: true },
+          { tool: 'schedule.delete', desc: '일정 삭제(소프트)', admin: 'O', operator: 'O', editor: 'O', instructor: 'O (본인)', viewer: 'X', guest: 'X', planned: true },
+        ],
+      },
+    ],
+  },
+  {
+    menuKey: 'templates',
+    features: [
+      {
+        title: '템플릿 허브',
+        items: [
+          { tool: 'template.create', desc: '템플릿 생성', admin: 'O', operator: 'O', editor: 'O', instructor: 'X', viewer: 'X', guest: 'X' },
+          { tool: 'template.upsert', desc: '템플릿 생성/수정', admin: 'O', operator: 'O', editor: 'O', instructor: 'O (본인)', viewer: 'X', guest: 'X' },
+          { tool: 'template.get', desc: '템플릿 단건 조회', admin: 'O', operator: 'O', editor: 'O', instructor: 'O', viewer: 'O', guest: 'X' },
+          { tool: 'template.list', desc: '템플릿 목록 조회', admin: 'O', operator: 'O', editor: 'O', instructor: 'O', viewer: 'O', guest: 'X' },
+          { tool: 'template.previewHtml', desc: '템플릿 미리보기', admin: 'O', operator: 'O', editor: 'O', instructor: 'O', viewer: 'O', guest: 'X' },
+          { tool: 'template.delete', desc: '템플릿 삭제(소프트)', admin: 'O', operator: 'O', editor: 'O', instructor: 'O (본인)', viewer: 'X', guest: 'X' },
+        ],
+      },
+    ],
+  },
+  {
+    menuKey: 'my-templates',
+    features: [
+      {
+        title: '내 템플릿',
+        items: [
+          { tool: 'template.listMine', desc: '내 템플릿 목록 조회', admin: 'O (본인)', operator: 'O (본인)', editor: 'O (본인)', instructor: 'O (본인)', viewer: 'O (본인)', guest: 'O (본인)', isNew: true, planned: true },
+          { tool: 'template.deleteMine', desc: '내 템플릿 삭제', admin: 'O (본인)', operator: 'O (본인)', editor: 'O (본인)', instructor: 'O (본인)', viewer: 'O (본인)', guest: 'O (본인)', planned: true, isNew: true },
+        ],
+      },
+    ],
+  },
+  {
+    menuKey: 'documents',
+    features: [
+      {
+        title: '내 문서',
+        items: [
+          { tool: 'document.list', desc: '내 문서 목록 조회', admin: 'O (본인)', operator: 'O (본인)', editor: 'O (본인)', instructor: 'O (본인)', viewer: 'O (본인)', guest: 'O (본인)' },
+          { tool: 'document.delete', desc: '문서 삭제', admin: 'O (본인)', operator: 'O (본인)', editor: 'O (본인)', instructor: 'O (본인)', viewer: 'O (본인)', guest: 'O (본인)' },
+          { tool: 'document.listMine', desc: '내 문서 목록 조회(분리 툴)', admin: 'O (본인)', operator: 'O (본인)', editor: 'O (본인)', instructor: 'O (본인)', viewer: 'O (본인)', guest: 'O (본인)', isNew: true, planned: true },
+        ],
+      },
+    ],
+  },
+  {
+    menuKey: 'render',
+    features: [
+      {
+        title: '렌더',
+        items: [
+          { tool: 'render.coursePdf', desc: '코스 PDF 렌더', admin: 'O', operator: 'O', editor: 'O', instructor: 'O', viewer: 'X', guest: 'X' },
+          { tool: 'render.schedulePdf', desc: '일정 PDF 렌더', admin: 'O', operator: 'O', editor: 'O', instructor: 'O', viewer: 'X', guest: 'X' },
+          { tool: 'render.instructorProfilePdf', desc: '강사 프로필 PDF 렌더', admin: 'O', operator: 'O', editor: 'O', instructor: 'O', viewer: 'X', guest: 'X' },
+          { tool: 'render.listMine', desc: '내 렌더 작업 목록', admin: 'O (본인)', operator: 'O (본인)', editor: 'O (본인)', instructor: 'O (본인)', viewer: 'O (본인)', guest: 'O (본인)', isNew: true, planned: true },
+          { tool: 'render.deleteMine', desc: '내 렌더 작업 삭제', admin: 'O (본인)', operator: 'O (본인)', editor: 'O (본인)', instructor: 'O (본인)', viewer: 'O (본인)', guest: 'O (본인)', planned: true, isNew: true },
+        ],
+      },
+    ],
+  },
+  {
+    menuKey: 'profile',
+    features: [
+      {
+        title: '프로필',
+        items: [
+          { tool: 'user.me', desc: '내 정보 조회', admin: 'O (본인)', operator: 'O (본인)', editor: 'O (본인)', instructor: 'O (본인)', viewer: 'O (본인)', guest: 'O (본인)' },
+          { tool: 'user.update', desc: '사용자 정보 수정', admin: 'O (본인)', operator: 'O (본인)', editor: 'O (본인)', instructor: 'O (본인)', viewer: 'O (본인)', guest: 'O (본인)' },
+          { tool: 'user.delete', desc: '회원 탈퇴', admin: 'O (본인)', operator: 'O (본인)', editor: 'O (본인)', instructor: 'O (본인)', viewer: 'O (본인)', guest: 'O (본인)' },
+          { tool: 'user.requestInstructor', desc: '강사 요청', admin: 'O (본인)', operator: 'O (본인)', editor: 'O (본인)', instructor: 'O (본인)', viewer: 'O (본인)', guest: 'O (본인)' },
+          { tool: 'user.updateInstructorProfile', desc: '강사 프로필 수정', admin: 'O (본인)', operator: 'O (본인)', editor: 'O (본인)', instructor: 'O (본인)', viewer: 'O (본인)', guest: 'O (본인)' },
+          { tool: 'user.getInstructorProfile', desc: '내 강사 프로필 조회', admin: 'O (본인)', operator: 'O (본인)', editor: 'O (본인)', instructor: 'O (본인)', viewer: 'O (본인)', guest: 'O (본인)' },
+          { tool: 'user.refreshToken', desc: '세션 연장(리프레시 토큰)', admin: 'O (본인)', operator: 'O (본인)', editor: 'O (본인)', instructor: 'O (본인)', viewer: 'O (본인)', guest: 'O (본인)' },
+        ],
+      },
+      {
+        title: '인증',
+        items: [
+          { tool: 'user.register', desc: '회원가입', admin: '-', operator: '-', editor: '-', instructor: '-', viewer: '-', guest: '-' },
+          { tool: 'user.login', desc: '로그인', admin: '-', operator: '-', editor: '-', instructor: '-', viewer: '-', guest: '-' },
+        ],
+      },
+    ],
+  },
+  {
+    menuKey: 'users',
+    features: [
+      {
+        title: '사용자 관리',
+        items: [
+          { tool: 'user.get', desc: '사용자 단건 조회', admin: 'O', operator: 'X', editor: 'X', instructor: 'X', viewer: 'X', guest: 'X', exclusiveRole: 'admin' },
+          { tool: 'user.list', desc: '사용자 목록 조회', admin: 'O', operator: 'X', editor: 'X', instructor: 'X', viewer: 'X', guest: 'X', exclusiveRole: 'admin' },
+          { tool: 'user.updateRole', desc: '사용자 역할 변경', admin: 'O', operator: 'X', editor: 'X', instructor: 'X', viewer: 'X', guest: 'X', exclusiveRole: 'admin' },
+          { tool: 'user.updateByAdmin', desc: '관리자 전용 사용자 수정', admin: 'O', operator: 'X', editor: 'X', instructor: 'X', viewer: 'X', guest: 'X', exclusiveRole: 'admin' },
+          { tool: 'user.issueTestToken', desc: '관리자용 테스트 토큰 발급', admin: 'O', operator: 'X', editor: 'X', instructor: 'X', viewer: 'X', guest: 'X', exclusiveRole: 'admin' },
+          { tool: 'user.impersonate', desc: '관리자 가장 로그인', admin: 'O', operator: 'X', editor: 'X', instructor: 'X', viewer: 'X', guest: 'X', exclusiveRole: 'admin' },
+        ],
+      },
+    ],
+  },
+  {
+    menuKey: 'groups',
+    features: [
+      {
+        title: '그룹',
+        items: [
+          { tool: 'group.list', desc: '그룹 목록 조회', admin: 'O', operator: 'O', editor: 'X', instructor: 'X', viewer: 'X', guest: 'X' },
+          { tool: 'group.upsert', desc: '그룹 생성/수정', admin: 'O', operator: 'O', editor: 'X', instructor: 'X', viewer: 'X', guest: 'X' },
+          { tool: 'group.delete', desc: '그룹 삭제(소프트)', admin: 'O', operator: 'O', editor: 'X', instructor: 'X', viewer: 'X', guest: 'X' },
+          { tool: 'group.member.list', desc: '그룹 멤버 목록', admin: 'O', operator: 'O', editor: 'X', instructor: 'X', viewer: 'X', guest: 'X' },
+          { tool: 'group.member.add', desc: '그룹 멤버 추가', admin: 'O', operator: 'O', editor: 'X', instructor: 'X', viewer: 'X', guest: 'X' },
+          { tool: 'group.member.remove', desc: '그룹 멤버 삭제', admin: 'O', operator: 'O', editor: 'X', instructor: 'X', viewer: 'X', guest: 'X' },
+          { tool: 'group.member.updateRole', desc: '그룹 멤버 역할 변경', admin: 'O', operator: 'O', editor: 'X', instructor: 'X', viewer: 'X', guest: 'X' },
+        ],
+      },
+    ],
+  },
+  {
+    menuKey: 'permissions',
+    features: [
+      {
+        title: '권한 설정',
+        items: [
+          { tool: 'permission.grant.list', desc: '권한 정책 목록 조회', admin: 'O', operator: 'O', editor: 'X', instructor: 'X', viewer: 'X', guest: 'X' },
+          { tool: 'permission.grant.upsert', desc: '권한 정책 생성/수정', admin: 'O', operator: 'O', editor: 'X', instructor: 'X', viewer: 'X', guest: 'X' },
+          { tool: 'permission.grant.delete', desc: '권한 정책 삭제', admin: 'O', operator: 'O', editor: 'X', instructor: 'X', viewer: 'X', guest: 'X' },
+          { tool: 'authz.check', desc: '권한 평가', admin: 'O', operator: 'O', editor: 'X', instructor: 'X', viewer: 'X', guest: 'X', exclusiveRole: 'admin' },
+        ],
+      },
+    ],
+  },
+  {
+    menuKey: 'misc',
+    features: [
+      {
+        title: '공유',
+        items: [
+          { tool: 'document.share', desc: '문서 공유 토큰 생성/재발급', admin: 'O (본인)', operator: 'O (본인)', editor: 'O (본인)', instructor: 'O (본인)', viewer: 'O (본인)', guest: 'O (본인)' },
+          { tool: 'document.revokeShare', desc: '문서 공유 토큰 해제', admin: 'O (본인)', operator: 'O (본인)', editor: 'O (본인)', instructor: 'O (본인)', viewer: 'O (본인)', guest: 'O (본인)' },
+        ],
+      },
+      {
+        title: '승인/수락',
+        items: [
+          { tool: 'user.approveInstructor', desc: '강사 승인', admin: 'O', operator: 'X', editor: 'X', instructor: 'X', viewer: 'X', guest: 'X', exclusiveRole: 'admin' },
+        ],
+      },
+    ],
+  },
+  {
+    menuKey: 'site-settings',
+    features: [
+      {
+        title: '사이트 설정',
+        items: [
+          { tool: 'siteSetting.get', desc: '사이트 설정 조회', admin: 'O', operator: 'O', editor: 'X', instructor: 'X', viewer: 'X', guest: 'X' },
+          { tool: 'siteSetting.upsert', desc: '사이트 설정 저장', admin: 'O', operator: 'O', editor: 'X', instructor: 'X', viewer: 'X', guest: 'X' },
+          { tool: 'tableConfig.get', desc: '테이블 설정 조회', admin: 'O', operator: 'O', editor: 'X', instructor: 'X', viewer: 'X', guest: 'X' },
+          { tool: 'tableConfig.upsert', desc: '테이블 설정 저장', admin: 'O', operator: 'O', editor: 'X', instructor: 'X', viewer: 'X', guest: 'X' },
+        ],
+      },
+    ],
+  },
+  {
+    menuKey: 'board',
+    features: [
+      {
+        title: '게시판 관리',
+        items: [
+          { tool: 'board.list', desc: '게시글 목록 조회', admin: 'O', operator: 'O', editor: 'O', instructor: 'O', viewer: 'O', guest: 'O', planned: true, isNew: true },
+          { tool: 'board.get', desc: '게시글 상세 조회', admin: 'O', operator: 'O', editor: 'O', instructor: 'O', viewer: 'O', guest: 'O', planned: true, isNew: true },
+          { tool: 'board.upsert', desc: '게시글 작성/수정', admin: 'O', operator: 'O', editor: 'X', instructor: 'X', viewer: 'X', guest: 'X', planned: true, isNew: true },
+          { tool: 'board.delete', desc: '게시글 삭제(소프트)', admin: 'O', operator: 'O', editor: 'X', instructor: 'X', viewer: 'X', guest: 'X', planned: true, isNew: true },
+        ],
+      },
+    ],
+  },
+  {
+    menuKey: 'test-echo',
+    features: [
+      {
+        title: '테스트',
+        items: [
+          { tool: 'test.echo', desc: '테스트 에코', admin: 'O', operator: 'X', editor: 'X', instructor: 'X', viewer: 'X', guest: 'X', exclusiveRole: 'admin' },
+        ],
+      },
+    ],
+  },
+];
+
+const MENU_GATES = [
+  { key: 'dashboard', label: 'Dash Board' },
+  { key: 'courses', label: '코스 관리' },
+  { key: 'instructors', label: '강사 관리' },
+  { key: 'templates', label: '템플릿 관리' },
+  { key: 'render', label: 'PDF 생성' },
+  { key: 'users', label: '회원관리' },
+  { key: 'groups', label: '그룹관리' },
+  { key: 'permissions', label: '권한관리' },
+  { key: 'site-settings', label: '사이트 관리' },
+  { key: 'board', label: '게시판 관리' },
+  { key: 'documents', label: '내 문서함' },
+  { key: 'profile', label: '내 정보' },
+];
+
+type PermissionRow = {
+  key: string;
+  menuKey: string;
+  tool: string;
+  desc: string;
+  admin: string;
+  operator: string;
+  editor: string;
+  instructor: string;
+  viewer: string;
+  guest: string;
+  isNew?: boolean;
+  planned?: boolean;
+  exclusiveRole?: string;
+};
+
+type MenuRoleRow = {
+  key: string;
+  label: string;
+  admin: boolean;
+  operator: boolean;
+  editor: boolean;
+  instructor: boolean;
+  viewer: boolean;
+  guest: boolean;
+};
+
+type MenuRoleKey = keyof Omit<MenuRoleRow, 'key' | 'label'>;
+
+function normalizeAdminPermissionControls(args: {
+  menuRolePermissions: Record<string, boolean>;
+  permissionOverrides: Record<string, 'O' | 'X'>;
+}) {
+  const normalizedMenuRolePermissions = { ...args.menuRolePermissions };
+  Object.keys(normalizedMenuRolePermissions).forEach((key) => {
+    if (key.endsWith(':admin')) {
+      normalizedMenuRolePermissions[key] = true;
+    }
+  });
+  MENU_GATES.forEach((menu) => {
+    normalizedMenuRolePermissions[`${menu.key}:admin`] = true;
+  });
+
+  const normalizedPermissionOverrides = { ...args.permissionOverrides };
+  Object.keys(normalizedPermissionOverrides).forEach((key) => {
+    if (key.endsWith(':admin')) {
+      normalizedPermissionOverrides[key] = 'O';
+    }
+  });
+
+  return {
+    menuRolePermissions: normalizedMenuRolePermissions,
+    permissionOverrides: normalizedPermissionOverrides,
+  };
+}
+
 export default function SiteSettingsPage() {
   const { user, accessToken, issueTestToken } = useAuth();
+  const location = useLocation();
   const isAuthorized = user?.role === 'admin' || user?.role === 'operator';
+  const readMenuEnabled = () => readSitePermissionSnapshot().menuEnabled;
+  const readPermissionOverrides = () => readSitePermissionSnapshot().permissionOverrides;
+  const readMenuRolePermissions = () => readSitePermissionSnapshot().menuRolePermissions;
+
   const [tableKey, setTableKey] = useState<string>('courses');
+  const [activeTab, setActiveTab] = useState<string>('outline');
   const [columns, setColumns] = useState<ColumnConfig[]>([]);
   const [dirty, setDirty] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [menuEnabled, setMenuEnabled] = useState<Record<string, boolean>>(readMenuEnabled);
+  const [permissionOverrides, setPermissionOverrides] = useState<Record<string, 'O' | 'X'>>(
+    readPermissionOverrides,
+  );
+  const [menuRolePermissions, setMenuRolePermissions] = useState<Record<string, boolean>>(
+    readMenuRolePermissions,
+  );
+  const [savedMenuEnabled, setSavedMenuEnabled] = useState<Record<string, boolean>>(readMenuEnabled);
+  const [savedPermissionOverrides, setSavedPermissionOverrides] = useState<Record<string, 'O' | 'X'>>(
+    readPermissionOverrides,
+  );
+  const [savedMenuRolePermissions, setSavedMenuRolePermissions] = useState<Record<string, boolean>>(
+    readMenuRolePermissions,
+  );
   const [extendMinutes, setExtendMinutes] = useState(10);
   const [extendDirty, setExtendDirty] = useState(false);
   const [faviconUrl, setFaviconUrl] = useState<string>('');
@@ -67,6 +470,18 @@ export default function SiteSettingsPage() {
       cancelled = true;
     };
   }, [tableKey]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const nextTab = params.get('tab');
+    const nextTableKey = params.get('tableKey');
+    if (nextTab) {
+      setActiveTab(nextTab);
+    }
+    if (nextTableKey && TABLE_OPTIONS.some((opt) => opt.value === nextTableKey)) {
+      setTableKey(nextTableKey);
+    }
+  }, [location.search]);
 
   useEffect(() => {
     let cancelled = false;
@@ -172,6 +587,74 @@ export default function SiteSettingsPage() {
     };
   }, [accessToken]);
 
+  const isRecordEqual = <T extends Record<string, any>>(left: T, right: T) => {
+    const leftKeys = Object.keys(left);
+    const rightKeys = Object.keys(right);
+    if (leftKeys.length !== rightKeys.length) return false;
+    for (const key of leftKeys) {
+      if (left[key] !== right[key]) return false;
+    }
+    return true;
+  };
+
+  const permissionsDirty =
+    !isRecordEqual(menuEnabled, savedMenuEnabled) ||
+    !isRecordEqual(permissionOverrides, savedPermissionOverrides) ||
+    !isRecordEqual(menuRolePermissions, savedMenuRolePermissions);
+
+  const savePermissions = useCallback(() => {
+    const normalized = normalizeAdminPermissionControls({
+      menuRolePermissions,
+      permissionOverrides,
+    });
+    localStorage.setItem(
+      SITE_PERMISSION_STORAGE_KEYS.menuEnabled,
+      JSON.stringify(menuEnabled),
+    );
+    localStorage.setItem(
+      SITE_PERMISSION_STORAGE_KEYS.permissionOverrides,
+      JSON.stringify(normalized.permissionOverrides),
+    );
+    localStorage.setItem(
+      SITE_PERMISSION_STORAGE_KEYS.menuRolePermissions,
+      JSON.stringify(normalized.menuRolePermissions),
+    );
+    window.dispatchEvent(
+      new CustomEvent(SITE_PERMISSIONS_UPDATED_EVENT, {
+        detail: {
+          menuEnabled,
+          permissionOverrides: normalized.permissionOverrides,
+          menuRolePermissions: normalized.menuRolePermissions,
+        },
+      }),
+    );
+    setSavedMenuEnabled(menuEnabled);
+    setPermissionOverrides(normalized.permissionOverrides);
+    setMenuRolePermissions(normalized.menuRolePermissions);
+    setSavedPermissionOverrides(normalized.permissionOverrides);
+    setSavedMenuRolePermissions(normalized.menuRolePermissions);
+    message.success('권한 설정이 저장되었습니다.');
+  }, [menuEnabled, menuRolePermissions, permissionOverrides]);
+
+  useEffect(() => {
+    (window as any).__siteSettingsHasUnsaved = permissionsDirty;
+    (window as any).__siteSettingsSave = savePermissions;
+    return () => {
+      delete (window as any).__siteSettingsHasUnsaved;
+      delete (window as any).__siteSettingsSave;
+    };
+  }, [permissionsDirty, savePermissions]);
+
+  useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!permissionsDirty) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [permissionsDirty]);
+
   const moveRow = (index: number, direction: 'up' | 'down') => {
     const target = direction === 'up' ? index - 1 : index + 1;
     if (target < 0 || target >= columns.length) return;
@@ -254,6 +737,145 @@ export default function SiteSettingsPage() {
     [columns],
   );
 
+  const renderPermissionCell =
+    (roleKey: SitePermissionRole) =>
+    (value: string, record: PermissionRow) => {
+    const isSelf = value.includes('본인');
+    const normalized = value.startsWith('O') ? 'O' : value.startsWith('X') ? 'X' : '-';
+    const menuKey = record.menuKey;
+    const adminPinned = roleKey === 'admin';
+    const menuGateOn = menuKey ? (menuEnabled[menuKey] ?? true) : true;
+    const roleGateOn = menuKey
+      ? (adminPinned ? true : (menuRolePermissions[`${menuKey}:${roleKey}`] ?? true))
+      : true;
+    const locked = adminPinned || !menuGateOn || !roleGateOn;
+    const isExclusive = record.exclusiveRole === roleKey && normalized === 'O';
+    if (normalized === '-') {
+      return (
+        <Space size={6}>
+          <Tag color="default">-</Tag>
+        </Space>
+      );
+    }
+    const overrideKey = `${record.tool}:${roleKey}`;
+    const current = adminPinned ? 'O' : (permissionOverrides[overrideKey] ?? normalized);
+    return (
+      <Space size={6}>
+        <Switch
+          checked={current === 'O'}
+          size="small"
+          disabled={locked}
+          onChange={(checked) =>
+            setPermissionOverrides((prev) => {
+              if (adminPinned) return prev;
+              return {
+                ...prev,
+                [overrideKey]: checked ? 'O' : 'X',
+              };
+            })
+          }
+        />
+        {adminPinned ? <Tag color="blue">고정</Tag> : null}
+        {isSelf ? <Tag color="green">본인</Tag> : null}
+        {isExclusive ? <Tag color="orange">전용</Tag> : null}
+      </Space>
+    );
+  };
+
+  const permissionColumns = useMemo<ColumnsType<PermissionRow>>(
+    () => [
+      {
+        title: '툴',
+        dataIndex: 'tool',
+        width: 220,
+        render: (_: string, record: PermissionRow) => (
+          <Space size={6}>
+            <Tag>{record.tool}</Tag>
+            {record.isNew ? <Tag color="cyan">NEW</Tag> : null}
+            {record.planned ? <Tag color="red">미구현</Tag> : null}
+          </Space>
+        ),
+      },
+      {
+        title: '기능 정의',
+        dataIndex: 'desc',
+        render: (value: string, record: PermissionRow) =>
+          record.planned ? (
+            <span style={{ color: '#cf1322', fontWeight: 700 }}>{value}</span>
+          ) : (
+            value
+          ),
+      },
+      { title: 'admin', dataIndex: 'admin', width: 140, render: renderPermissionCell('admin') },
+      { title: 'operator', dataIndex: 'operator', width: 140, render: renderPermissionCell('operator') },
+      { title: 'editor', dataIndex: 'editor', width: 140, render: renderPermissionCell('editor') },
+      { title: 'instructor', dataIndex: 'instructor', width: 160, render: renderPermissionCell('instructor') },
+      { title: 'viewer', dataIndex: 'viewer', width: 140, render: renderPermissionCell('viewer') },
+      { title: 'guest', dataIndex: 'guest', width: 140, render: renderPermissionCell('guest') },
+    ],
+    [menuEnabled, menuRolePermissions, permissionOverrides],
+  );
+
+  const menuRoleColumns = useMemo<ColumnsType<MenuRoleRow>>(() => {
+    const roleColumns: ColumnsType<MenuRoleRow> = ROLE_DEFINITIONS.map((role) => ({
+      title: role.role,
+      dataIndex: role.role,
+      width: 110,
+      render: (enabled: boolean, record: MenuRoleRow) => {
+        const adminPinned = role.role === 'admin';
+        return (
+          <Space size={6}>
+            <Switch
+              checked={adminPinned ? true : enabled}
+              size="small"
+              disabled={adminPinned || !(menuEnabled[record.key] ?? true)}
+              onChange={(checked) => {
+                if (adminPinned) return;
+                setMenuRolePermissions((prev) => ({
+                  ...prev,
+                  [`${record.key}:${role.role}`]: checked,
+                }));
+              }}
+            />
+            {adminPinned ? <Tag color="blue">고정</Tag> : null}
+          </Space>
+        );
+      },
+    }));
+    return [
+      { title: '메뉴', dataIndex: 'label', width: 180 },
+      ...roleColumns,
+    ];
+  }, [menuEnabled, menuRolePermissions]);
+
+  const buildMenuRoleRow = (menuKey: string, label: string): MenuRoleRow => {
+    const row: MenuRoleRow = {
+      key: menuKey,
+      label,
+      admin: true,
+      operator: true,
+      editor: true,
+      instructor: true,
+      viewer: true,
+      guest: true,
+    };
+    ROLE_DEFINITIONS.forEach((role) => {
+      const key = `${menuKey}:${role.role}`;
+      const roleKey = role.role as MenuRoleKey;
+      row[roleKey] = roleKey === 'admin' ? true : (menuRolePermissions[key] ?? true);
+    });
+    return row;
+  };
+
+  const roleColumns = useMemo(
+    () => [
+      { title: '역할', dataIndex: 'role', width: 140, render: (value: string) => <Tag>{value}</Tag> },
+      { title: '설명', dataIndex: 'description', width: 220 },
+      { title: '주요 권한 요약', dataIndex: 'summary' },
+    ],
+    [],
+  );
+
   if (!isAuthorized) {
     return (
       <Result
@@ -269,7 +891,8 @@ export default function SiteSettingsPage() {
       <h2 style={{ marginBottom: 16 }}>사이트 관리</h2>
 
       <Tabs
-        defaultActiveKey="outline"
+        activeKey={activeTab}
+        onChange={setActiveTab}
         items={[
           {
             key: 'basic',
@@ -592,6 +1215,196 @@ export default function SiteSettingsPage() {
                     pagination={false}
                     size="middle"
                   />
+                </Card>
+              </>
+            ),
+          },
+          {
+            key: 'board',
+            label: '게시판관리',
+            children: (
+              <>
+                <Alert
+                  type="info"
+                  showIcon
+                  message="게시판관리"
+                  description="공지/업데이트/가이드 게시물을 운영합니다."
+                  style={{ marginBottom: 16 }}
+                />
+                <BoardAdminPage embedded />
+              </>
+            ),
+          },
+          {
+            key: 'permissions',
+            label: '권한관리',
+            children: (
+              <>
+                <Alert
+                  type="info"
+                  showIcon
+                  message="권한관리"
+                  description="기능 정의와 메뉴/역할/기능 권한을 저장하고 프론트 접근 제어에 즉시 반영합니다."
+                  style={{ marginBottom: 16 }}
+                />
+                <Card style={{ marginBottom: 16 }}>
+                  <Collapse
+                    defaultActiveKey={[]}
+                    items={[
+                      {
+                        key: 'roles',
+                        label: (
+                          <Space size={8}>
+                            <span style={{ fontWeight: 600 }}>역할(Role) 정의</span>
+                            <Tag color="default">{ROLE_DEFINITIONS.length}</Tag>
+                          </Space>
+                        ),
+                        children: (
+                          <Table
+                            columns={roleColumns}
+                            dataSource={ROLE_DEFINITIONS}
+                            rowKey="role"
+                            pagination={false}
+                            size="small"
+                          />
+                        ),
+                      },
+                    ]}
+                  />
+                </Card>
+                <Card style={{ marginBottom: 16 }}>
+                  <div style={{ fontWeight: 600, marginBottom: 12 }}>메뉴/권한 통합 관리</div>
+                  <Alert
+                    type="warning"
+                    showIcon
+                    message="상위 메뉴 OFF 시 하위 기능은 기본 차단"
+                    description="메뉴가 비활성화되면 해당 도메인의 기능 권한이 허용이어도 접근이 막힙니다."
+                    style={{ marginBottom: 12 }}
+                  />
+                  <Space style={{ marginBottom: 12 }}>
+                    <Button type="primary" disabled={!permissionsDirty} onClick={savePermissions}>
+                      저장
+                    </Button>
+                    <Button
+                      disabled={!permissionsDirty}
+                      onClick={() => {
+                        setMenuEnabled(savedMenuEnabled);
+                        setPermissionOverrides(savedPermissionOverrides);
+                        setMenuRolePermissions(savedMenuRolePermissions);
+                        message.info('변경 내용을 되돌렸습니다.');
+                      }}
+                    >
+                      되돌리기
+                    </Button>
+                    {permissionsDirty ? <Tag color="orange">변경 내용 있음</Tag> : <Tag color="green">저장됨</Tag>}
+                  </Space>
+                  <Collapse
+                    accordion
+                    items={MENU_GATES.map((menu) => {
+                      const menuSection = PERMISSION_SECTIONS.find((section) => section.menuKey === menu.key);
+                      const sections = menuSection?.features ?? [];
+                      const extraSections = PERMISSION_SECTIONS.filter(
+                        (section) => !MENU_GATES.some((menuItem) => menuItem.key === section.menuKey),
+                      ).flatMap((section) => section.features ?? []);
+                      const mergedSections =
+                        menu.key === MENU_GATES[MENU_GATES.length - 1].key && extraSections.length > 0
+                          ? [...sections, { title: '기타', items: extraSections.flatMap((item) => item.items ?? []) }]
+                          : sections;
+                      const gateEnabled = menuEnabled[menu.key] ?? true;
+                      return {
+                        key: menu.key,
+                        label: (
+                          <Space size={12}>
+                            <span>{menu.label}</span>
+                            <span
+                              onClick={(event) => event.stopPropagation()}
+                              style={{ display: 'inline-flex', alignItems: 'center' }}
+                            >
+                              <Switch
+                                checked={gateEnabled}
+                                onChange={(checked) =>
+                                  setMenuEnabled((prev) => ({
+                                    ...prev,
+                                    [menu.key]: checked,
+                                  }))
+                                }
+                              />
+                            </span>
+                            {!gateEnabled ? <Tag color="red">OFF</Tag> : <Tag color="green">ON</Tag>}
+                          </Space>
+                        ),
+                        children: (
+                          <div>
+                            <div style={{ fontWeight: 600, marginBottom: 8 }}>역할별 메뉴 접근</div>
+                            <Table
+                              columns={menuRoleColumns}
+                              dataSource={[buildMenuRoleRow(menu.key, menu.label)]}
+                              rowKey="key"
+                              pagination={false}
+                              size="small"
+                            />
+                            {mergedSections.length === 0 ? (
+                              <div style={{ marginTop: 12 }}>
+                                <Tag color="default">하위 기능 없음</Tag>
+                              </div>
+                            ) : (
+                              mergedSections.map((section) => (
+                                <Card key={section.title} style={{ marginTop: 12 }}>
+                                  <div style={{ fontWeight: 600, marginBottom: 8, color: gateEnabled ? '#333' : '#999' }}>
+                                    {section.title}
+                                  </div>
+                                  <div
+                                    style={{
+                                      opacity: gateEnabled ? 1 : 0,
+                                      filter: gateEnabled ? 'none' : 'grayscale(1)',
+                                      pointerEvents: gateEnabled ? 'auto' : 'none',
+                                      visibility: gateEnabled ? 'visible' : 'hidden',
+                                      height: gateEnabled ? 'auto' : undefined,
+                                    }}
+                                  >
+                                    {section.items.length === 0 ? (
+                                      <Tag color="default">하위 기능 없음</Tag>
+                                    ) : (
+                                      <Table
+                                        columns={permissionColumns}
+                                        dataSource={section.items.map((item): PermissionRow => ({
+                                          key: item.tool,
+                                          menuKey: menu.key,
+                                          tool: item.tool,
+                                          desc: item.desc,
+                                          admin: item.admin,
+                                          operator: item.operator,
+                                          editor: item.editor,
+                                          instructor: item.instructor,
+                                          viewer: item.viewer,
+                                          guest: item.guest,
+                                          isNew: 'isNew' in item ? item.isNew : undefined,
+                                          planned: 'planned' in item ? item.planned : undefined,
+                                          exclusiveRole:
+                                            'exclusiveRole' in item
+                                              ? item.exclusiveRole
+                                              : undefined,
+                                        }))}
+                                        rowKey="key"
+                                        pagination={false}
+                                        size="middle"
+                                      />
+                                    )}
+                                  </div>
+                                </Card>
+                              ))
+                            )}
+                          </div>
+                        ),
+                      };
+                    })}
+                  />
+                </Card>
+                <Card>
+                  <div style={{ fontWeight: 600, marginBottom: 8 }}>표기 규칙</div>
+                  <div style={{ color: '#666' }}>
+                    O = 허용, X = 거부, - = 인증 불필요(공개)
+                  </div>
                 </Card>
               </>
             ),

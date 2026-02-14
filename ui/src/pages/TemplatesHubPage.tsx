@@ -66,6 +66,7 @@ const courseHtml = `<div class="course-intro">
   </ul>
 
   <h2>교육 내용</h2>
+  <p>{{course.content}}</p>
   <ul>
     {{#each lectures}}
     <li>{{this.title}} ({{this.hours}}시간)</li>

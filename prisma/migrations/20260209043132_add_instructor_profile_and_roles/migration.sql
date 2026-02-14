@@ -12,15 +12,15 @@
 -- the enum.
 
 -- First, add enum values one by one
-ALTER TYPE "Role" ADD VALUE 'operator' BEFORE 'editor';
-ALTER TYPE "Role" ADD VALUE 'instructor' BEFORE 'viewer';
-ALTER TYPE "Role" ADD VALUE 'guest';
+ALTER TYPE "Role" ADD VALUE IF NOT EXISTS 'operator' BEFORE 'editor';
+ALTER TYPE "Role" ADD VALUE IF NOT EXISTS 'instructor' BEFORE 'viewer';
+ALTER TYPE "Role" ADD VALUE IF NOT EXISTS 'guest';
 
 -- DropForeignKey
-ALTER TABLE "CourseModule" DROP CONSTRAINT "CourseModule_courseId_fkey";
+ALTER TABLE IF EXISTS "CourseModule" DROP CONSTRAINT IF EXISTS "CourseModule_courseId_fkey";
 
 -- DropTable
-DROP TABLE "CourseModule";
+DROP TABLE IF EXISTS "CourseModule";
 
 -- AlterTable
 ALTER TABLE "User" ALTER COLUMN "role" SET DEFAULT 'guest';

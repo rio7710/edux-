@@ -11,16 +11,20 @@ import {
   Space,
   Tag,
   Alert,
+  Typography,
+  Tooltip,
 } from 'antd';
 import type { ColumnType } from 'antd/es/table';
 import {
   EditOutlined,
   EyeOutlined,
   ReloadOutlined,
+  SettingOutlined,
 } from '@ant-design/icons';
 import { useMutation } from '@tanstack/react-query';
 import { api, mcpClient } from '../api/mcpClient';
 import { useAuth } from '../contexts/AuthContext';
+import { useNavigate } from 'react-router-dom';
 import { useTableConfig } from '../hooks/useTableConfig';
 import { buildColumns, NO_COLUMN_KEY } from '../utils/tableConfig';
 import { DEFAULT_COLUMNS } from '../utils/tableDefaults';
@@ -50,7 +54,7 @@ const roleLabels: Record<string, string> = {
   operator: '운영자',
   editor: '편집자',
   instructor: '강의자',
-  viewer: '사용자(뷰어)',
+  viewer: '사용자',
   guest: '게스트',
 };
 
@@ -59,11 +63,13 @@ const roleOptions = [
   { label: '운영자 (operator)', value: 'operator' },
   { label: '편집자 (editor)', value: 'editor' },
   { label: '강의자 (instructor)', value: 'instructor' },
-  { label: '사용자(뷰어) (viewer)', value: 'viewer' },
+  { label: '사용자 (viewer)', value: 'viewer' },
   { label: '게스트 (guest)', value: 'guest' },
 ];
+const { Link } = Typography;
 
 export default function UsersPage() {
+  const navigate = useNavigate();
   const [users, setUsers] = useState<User[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -71,7 +77,8 @@ export default function UsersPage() {
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [viewUser, setViewUser] = useState<User | null>(null);
   const [form] = Form.useForm();
-  const { accessToken, user: currentUser } = useAuth();
+  const { accessToken, user: currentUser, impersonateUser } = useAuth();
+  const canImpersonate = import.meta.env.DEV && currentUser?.role === 'admin';
   const { configs: columnConfigs } = useTableConfig(
     'users',
     DEFAULT_COLUMNS.users,
@@ -228,6 +235,29 @@ export default function UsersPage() {
     }
   };
 
+  const handleImpersonate = (target: User) => {
+    if (!canImpersonate) return;
+    if (target.id === currentUser?.id) {
+      message.warning('본인 계정으로는 전환할 수 없습니다.');
+      return;
+    }
+    Modal.confirm({
+      title: '테스트 계정 전환',
+      content: `${target.name} (${target.email}) 계정으로 전환합니다. 상단의 "원래 계정 복귀" 버튼으로 돌아올 수 있습니다.`,
+      okText: '전환',
+      cancelText: '취소',
+      onOk: async () => {
+        try {
+          await impersonateUser(target.id, 'admin-users-page');
+          message.success(`${target.name} 계정으로 전환되었습니다.`);
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : '계정 전환 실패';
+          message.error(msg);
+        }
+      },
+    });
+  };
+
   const columnMap: Record<string, ColumnType<User>> = {
     [NO_COLUMN_KEY]: {
       title: 'No',
@@ -237,7 +267,17 @@ export default function UsersPage() {
     },
     id: { title: 'ID', dataIndex: 'id', key: 'id', width: 200, ellipsis: true },
     email: { title: '이메일', dataIndex: 'email', key: 'email', width: 200, ellipsis: true },
-    name: { title: '이름', dataIndex: 'name', key: 'name' },
+    name: {
+      title: '이름',
+      dataIndex: 'name',
+      key: 'name',
+      render: (name: string, record: User) =>
+        canImpersonate && record.id !== currentUser?.id && record.isActive ? (
+          <Link onClick={() => handleImpersonate(record)}>{name}</Link>
+        ) : (
+          name
+        ),
+    },
     role: {
       title: '역할',
       dataIndex: 'role',
@@ -311,9 +351,23 @@ export default function UsersPage() {
           marginBottom: 16,
           display: 'flex',
           justifyContent: 'space-between',
+          alignItems: 'center',
         }}
       >
-        <h2 style={{ margin: 0 }}>회원 목록</h2>
+        <Space size={8} align="center">
+          <h2 style={{ margin: 0 }}>회원 목록</h2>
+          {currentUser?.role === 'admin' && (
+            <Tooltip title="목차 설정으로 이동">
+              <Button
+                type="text"
+                size="small"
+                icon={<SettingOutlined />}
+                onClick={() => navigate('/admin/site-settings?tab=outline&tableKey=users')}
+                style={{ padding: 4 }}
+              />
+            </Tooltip>
+          )}
+        </Space>
         <Space>
           <Button
             icon={<ReloadOutlined />}

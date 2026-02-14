@@ -46,8 +46,8 @@ export async function renderCoursePdfHandler(args: {
     }
 
     // 1. Validate template and course existence
-    const template = await prisma.template.findUnique({
-      where: { id: args.templateId },
+    const template = await prisma.template.findFirst({
+      where: { id: args.templateId, deletedAt: null },
       select: { id: true },
     });
     if (!template) {
@@ -161,8 +161,8 @@ export async function renderSchedulePdfHandler(args: {
     }
 
     // 1. Validate template and schedule existence
-    const template = await prisma.template.findUnique({
-      where: { id: args.templateId },
+    const template = await prisma.template.findFirst({
+      where: { id: args.templateId, deletedAt: null },
       select: { id: true },
     });
     if (!template) {
@@ -174,13 +174,41 @@ export async function renderSchedulePdfHandler(args: {
 
     const schedule = await prisma.courseSchedule.findUnique({
       where: { id: args.scheduleId, deletedAt: null },
-      select: { id: true },
+      select: { id: true, courseId: true },
     });
     if (!schedule) {
       return {
         content: [{ type: 'text' as const, text: `Schedule not found: ${args.scheduleId}` }],
         isError: true,
       };
+    }
+    const isAdminOperator =
+      payload.role === "admin" || payload.role === "operator";
+    if (!isAdminOperator) {
+      const visibleCourse = await prisma.course.findFirst({
+        where: {
+          id: schedule.courseId,
+          deletedAt: null,
+          OR: [
+            { createdBy: user.id },
+            {
+              CourseShares: {
+                some: {
+                  sharedWithUserId: user.id,
+                  status: "accepted",
+                },
+              },
+            },
+          ],
+        },
+        select: { id: true },
+      });
+      if (!visibleCourse) {
+        return {
+          content: [{ type: "text" as const, text: "일정 내보내기 권한이 없습니다." }],
+          isError: true,
+        };
+      }
     }
 
     // 2. Create RenderJob record (status: pending)
@@ -247,8 +275,8 @@ export async function renderInstructorProfilePdfHandler(args: {
       };
     }
 
-    const template = await prisma.template.findUnique({
-      where: { id: args.templateId },
+    const template = await prisma.template.findFirst({
+      where: { id: args.templateId, deletedAt: null },
       select: { id: true },
     });
     if (!template) {
@@ -260,11 +288,19 @@ export async function renderInstructorProfilePdfHandler(args: {
 
     const profile = await prisma.instructorProfile.findUnique({
       where: { id: args.profileId },
-      select: { id: true },
+      select: { id: true, userId: true },
     });
     if (!profile) {
       return {
         content: [{ type: 'text' as const, text: `Instructor profile not found: ${args.profileId}` }],
+        isError: true,
+      };
+    }
+    const isAdminOperator =
+      payload.role === "admin" || payload.role === "operator";
+    if (!isAdminOperator && profile.userId !== user.id) {
+      return {
+        content: [{ type: "text" as const, text: "강사 프로필 내보내기 권한이 없습니다." }],
         isError: true,
       };
     }

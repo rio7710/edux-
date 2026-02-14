@@ -4,6 +4,8 @@ import {
     EyeOutlined,
     PlusOutlined,
     ReloadOutlined,
+    ShareAltOutlined,
+    SettingOutlined,
 } from "@ant-design/icons";
 import { useMutation } from "@tanstack/react-query";
 import {
@@ -22,15 +24,20 @@ import {
     Switch,
     Table,
     Alert,
+    Tooltip,
+    Result,
 } from "antd";
 import type { ColumnType } from "antd/es/table";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, mcpClient } from "../api/mcpClient";
 import { useAuth } from "../contexts/AuthContext";
+import { useSitePermissions } from "../hooks/useSitePermissions";
 import { useTableConfig } from "../hooks/useTableConfig";
 import { buildColumns, NO_COLUMN_KEY } from "../utils/tableConfig";
 import { DEFAULT_COLUMNS } from "../utils/tableDefaults";
 import { useLocation, useNavigate } from "react-router-dom";
+import { withErrorReportId } from "../utils/errorReport";
+import { isAuthErrorMessage } from "../utils/error";
 
 interface Lecture {
   id: string;
@@ -50,6 +57,7 @@ interface Course {
   isOnline?: boolean;
   equipment?: string[];
   goal?: string;
+  content?: string;
   notes?: string;
   createdBy?: string;
   Lectures?: Lecture[];
@@ -100,10 +108,11 @@ export default function CoursesPage() {
   const [form] = Form.useForm();
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
-  const { accessToken, logout } = useAuth();
+  const { accessToken, logout, user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [instructors, setInstructors] = useState<Instructor[]>([]);
+  const [canDeleteCourse, setCanDeleteCourse] = useState(false);
   const { configs: columnConfigs } = useTableConfig(
     "courses",
     DEFAULT_COLUMNS.courses,
@@ -113,6 +122,9 @@ export default function CoursesPage() {
   const [lectureModalOpen, setLectureModalOpen] = useState(false);
   const [editingLecture, setEditingLecture] = useState<Lecture | null>(null);
   const [lectureForm] = Form.useForm();
+  const [mapLectureId, setMapLectureId] = useState("");
+  const [mapLectureOrder, setMapLectureOrder] = useState<number | undefined>();
+  const [mapLectureLoading, setMapLectureLoading] = useState(false);
   const [instructorPickerOpen, setInstructorPickerOpen] = useState(false);
   const [instructorSearch, setInstructorSearch] = useState("");
   const [selectedInstructorRowKeys, setSelectedInstructorRowKeys] = useState<
@@ -125,12 +137,31 @@ export default function CoursesPage() {
   const [shareTargets, setShareTargets] = useState<ShareTargetUser[]>([]);
   const [selectedShareUserIds, setSelectedShareUserIds] = useState<string[]>([]);
   const [originalShareUserIds, setOriginalShareUserIds] = useState<string[]>([]);
+  const [lectureShareModalOpen, setLectureShareModalOpen] = useState(false);
+  const [shareLecture, setShareLecture] = useState<Lecture | null>(null);
+  const [selectedLectureShareUserIds, setSelectedLectureShareUserIds] = useState<string[]>([]);
+  const [originalLectureShareUserIds, setOriginalLectureShareUserIds] = useState<string[]>([]);
+  const [manualLectureShareUserIds, setManualLectureShareUserIds] = useState<string[]>([]);
+  const [lectureShareSaveLoading, setLectureShareSaveLoading] = useState(false);
+  const [courseLectureShareModalOpen, setCourseLectureShareModalOpen] = useState(false);
+  const [selectedCourseLectureShareUserIds, setSelectedCourseLectureShareUserIds] = useState<string[]>([]);
+  const [originalCourseLectureShareUserIds, setOriginalCourseLectureShareUserIds] = useState<string[]>([]);
+  const [manualCourseLectureShareUserIds, setManualCourseLectureShareUserIds] = useState<string[]>([]);
+  const [courseLectureShareSaveLoading, setCourseLectureShareSaveLoading] = useState(false);
   const [courseExportTemplates, setCourseExportTemplates] = useState<CourseTemplateOption[]>([]);
   const [selectedCourseTemplateId, setSelectedCourseTemplateId] = useState<string>();
   const [courseExportLabel, setCourseExportLabel] = useState("");
   const [coursePreviewLoading, setCoursePreviewLoading] = useState(false);
   const [courseExportLoading, setCourseExportLoading] = useState(false);
   const draftPromptOpenRef = useRef(false);
+  const { canAccessMenu, canUseFeature } = useSitePermissions(user?.role);
+  const isAdminOrOperator = user?.role === "admin" || user?.role === "operator";
+  const canAccessCoursesMenu = canAccessMenu("courses");
+  const canListCourseBySite = canUseFeature("courses", "course.list");
+  const canListMineCourseBySite = canUseFeature("courses", "course.listMine");
+  const canUpsertCourseBySite = canUseFeature("courses", "course.upsert");
+  const canDeleteCourseBySite = canUseFeature("courses", "course.delete");
+  const isMineOnlyView = !canListCourseBySite && canListMineCourseBySite;
 
   const draftKey = useMemo(() => "draft:course", []);
 
@@ -158,10 +189,12 @@ export default function CoursesPage() {
     localStorage.removeItem(draftKey);
   };
 
-  const isAuthError = (messageText: string) =>
-    /인증|토큰|로그인|권한|세션|MCP 연결 시간이 초과되었습니다|요청 시간이 초과되었습니다/.test(
-      messageText,
-    );
+  const isAuthError = (messageText: string) => isAuthErrorMessage(messageText);
+
+  const withReport = (prefix: string, error: unknown) => {
+    const detail = error instanceof Error ? error.message : "알 수 없는 오류";
+    return withErrorReportId(`${prefix}: ${detail}`, error);
+  };
 
   const handleSessionExpired = (reason?: string) => {
     saveDraft();
@@ -180,9 +213,21 @@ export default function CoursesPage() {
   };
 
   const loadCourses = async () => {
+    if (!accessToken) {
+      setCourses([]);
+      setLoading(false);
+      return;
+    }
+    if (!canListCourseBySite && !canListMineCourseBySite) {
+      setCourses([]);
+      setLoading(false);
+      return;
+    }
     try {
       setLoading(true);
-      const result = (await api.courseList(50, 0, accessToken || undefined)) as {
+      const result = (await (isMineOnlyView
+        ? api.courseListMine(accessToken, 50, 0)
+        : api.courseList(50, 0, accessToken))) as {
         courses: Course[];
         total: number;
       };
@@ -191,6 +236,22 @@ export default function CoursesPage() {
       console.error("Failed to load courses:", error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadCourseDeletePermission = async () => {
+    if (!accessToken) {
+      setCanDeleteCourse(false);
+      return;
+    }
+    try {
+      const result = (await api.authzCheck({
+        token: accessToken,
+        permissionKey: "course.delete",
+      })) as { allowed?: boolean };
+      setCanDeleteCourse(!!result?.allowed);
+    } catch {
+      setCanDeleteCourse(false);
     }
   };
 
@@ -235,7 +296,7 @@ export default function CoursesPage() {
   const loadCourseExportTemplates = async () => {
     if (!accessToken) return;
     try {
-      const result = (await api.templateList(1, 100, "course_intro")) as {
+      const result = (await api.templateList(1, 100, "course_intro", accessToken)) as {
         items: CourseTemplateOption[];
       };
       setCourseExportTemplates(result.items || []);
@@ -253,8 +314,21 @@ export default function CoursesPage() {
       loadInstructors();
       loadShareInbox();
       loadShareTargets();
+      loadCourseDeletePermission();
     });
   }, []);
+
+  useEffect(() => {
+    loadCourses();
+    loadInstructors();
+    loadShareInbox();
+    loadShareTargets();
+    loadCourseDeletePermission();
+  }, [accessToken, canListCourseBySite, canListMineCourseBySite]);
+
+  useEffect(() => {
+    loadCourseDeletePermission();
+  }, [accessToken]);
 
   useEffect(() => {
     if (!viewCourse || !accessToken) return;
@@ -271,7 +345,7 @@ export default function CoursesPage() {
       );
       await Promise.all([loadShareInbox(), loadCourses()]);
     } catch (error) {
-      message.error(`공유 응답 실패: ${(error as Error).message}`);
+      message.error(withReport("공유 응답 실패", error));
     } finally {
       setShareRespondLoading(null);
     }
@@ -279,6 +353,7 @@ export default function CoursesPage() {
 
   const buildCoursePreviewData = (course: Course) => ({
     course,
+    content: course.content || "",
     instructors: course.Instructors || [],
     lectures: course.Lectures || [],
     modules: course.Lectures || [],
@@ -368,6 +443,13 @@ export default function CoursesPage() {
     setIsModalOpen(true);
   }, [location.search]);
 
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get("create") !== "1") return;
+    handleCreate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.search]);
+
   const createMutation = useMutation({
     mutationFn: (data: Omit<Course, "id"> & { id?: string }) =>
       api.courseUpsert({ ...data, token: accessToken || undefined }),
@@ -385,12 +467,17 @@ export default function CoursesPage() {
         handleSessionExpired(error.message);
         return;
       }
-      message.error(`저장 실패: ${error.message}`);
+      message.error(withReport("저장 실패", error));
     },
   });
 
   const fetchCourseMutation = useMutation({
-    mutationFn: (id: string) => api.courseGet(id, accessToken || undefined),
+    mutationFn: (id: string) => {
+      if (!accessToken) {
+        throw new Error("인증이 필요합니다.");
+      }
+      return api.courseGet(id, accessToken);
+    },
     onSuccess: (result: unknown) => {
       const course = result as Course;
       setViewCourse(course);
@@ -429,7 +516,7 @@ export default function CoursesPage() {
       if (viewCourse) fetchCourseMutation.mutate(viewCourse.id);
     },
     onError: (error: Error) => {
-      message.error(`강의 저장 실패: ${error.message}`);
+      message.error(withReport("강의 저장 실패", error));
     },
   });
 
@@ -444,7 +531,30 @@ export default function CoursesPage() {
     },
   });
 
+  const courseDeleteMutation = useMutation({
+    mutationFn: (id: string) => api.courseDelete({ id, token: accessToken || "" }),
+    onSuccess: (_result, id) => {
+      message.success("코스가 삭제되었습니다.");
+      if (viewCourse?.id === id) {
+        setViewCourse(null);
+      }
+      loadCourses();
+      loadShareInbox();
+    },
+    onError: (error: Error) => {
+      if (isAuthError(error.message)) {
+        handleSessionExpired(error.message);
+        return;
+      }
+      message.error(`코스 삭제 실패: ${error.message}`);
+    },
+  });
+
   const handleCreate = () => {
+    if (!canUpsertCourseBySite) {
+      message.warning("사이트 권한 설정에 따라 코스 등록/수정 기능이 비활성화되었습니다.");
+      return;
+    }
     if (!accessToken) {
       message.warning("로그인 후 이용해주세요.");
       return;
@@ -494,6 +604,10 @@ export default function CoursesPage() {
   };
 
   const handleEdit = (course: Course) => {
+    if (!canUpsertCourseBySite) {
+      message.warning("사이트 권한 설정에 따라 코스 등록/수정 기능이 비활성화되었습니다.");
+      return;
+    }
     if (course.canEdit === false) {
       message.warning("본인 코스만 수정할 수 있습니다.");
       return;
@@ -503,7 +617,7 @@ export default function CoursesPage() {
       return;
     }
     api
-      .courseGet(course.id, accessToken || undefined)
+      .courseGet(course.id, accessToken)
       .then((result) => {
         const fullCourse = result as Course;
         setEditingCourse(fullCourse);
@@ -537,6 +651,179 @@ export default function CoursesPage() {
       .catch((error: Error) => {
         message.error(`조회 실패: ${error.message}`);
       });
+  };
+
+  const handleOpenLectureShareModal = async (lecture: Lecture) => {
+    if (!accessToken) {
+      message.warning("로그인 후 이용해주세요.");
+      return;
+    }
+    setShareLecture(lecture);
+    if (shareTargets.length === 0) {
+      await loadShareTargets();
+    }
+    try {
+      const result = (await api.lectureGrantList({
+        lectureId: lecture.id,
+        token: accessToken,
+      })) as {
+        grants: Array<{
+          userId: string;
+          canMap: boolean;
+          canEdit: boolean;
+          canReshare: boolean;
+          revokedAt?: string | null;
+        }>;
+      };
+      const grants = result.grants || [];
+      const active = grants
+        .filter((g) => !g.revokedAt && g.canMap)
+        .map((g) => g.userId);
+      setSelectedLectureShareUserIds(active);
+      setOriginalLectureShareUserIds(active);
+      setManualLectureShareUserIds(active);
+    } catch (error) {
+      message.error(`강의 공유 목록 조회 실패: ${(error as Error).message}`);
+      setSelectedLectureShareUserIds([]);
+      setOriginalLectureShareUserIds([]);
+    }
+    setLectureShareModalOpen(true);
+  };
+
+  const handleSaveLectureShares = async () => {
+    if (!accessToken || !shareLecture) return;
+    setLectureShareSaveLoading(true);
+    try {
+      const selectedSet = new Set(selectedLectureShareUserIds);
+      const originalSet = new Set(originalLectureShareUserIds);
+      const toInvite = [...selectedSet].filter((id) => !originalSet.has(id));
+      const toRevoke = [...originalSet].filter((id) => !selectedSet.has(id));
+
+      await Promise.all([
+        ...toInvite.map((targetUserId) =>
+          api.lectureGrantUpsert({
+            token: accessToken,
+            lectureId: shareLecture.id,
+            userId: targetUserId,
+            canMap: true,
+            canEdit: false,
+            canReshare: false,
+          }),
+        ),
+        ...toRevoke.map((userId) =>
+          api.lectureGrantDelete({
+            token: accessToken,
+            lectureId: shareLecture.id,
+            userId,
+          }),
+        ),
+      ]);
+
+      message.success("강의 공유 설정이 저장되었습니다.");
+      setLectureShareModalOpen(false);
+      setShareLecture(null);
+      await Promise.all([loadCourses(), loadShareInbox()]);
+    } catch (error) {
+      message.error(withReport("강의 공유 저장 실패", error));
+    } finally {
+      setLectureShareSaveLoading(false);
+    }
+  };
+
+  const handleOpenCourseLectureShareModal = async () => {
+    if (!viewCourse) return;
+    if (viewCourse.canEdit === false) {
+      message.warning("강의 공유 권한이 없습니다.");
+      return;
+    }
+    if (!accessToken) {
+      message.warning("로그인 후 이용해주세요.");
+      return;
+    }
+    if ((viewCourse.Lectures || []).length === 0) {
+      message.warning("공유할 강의가 없습니다.");
+      return;
+    }
+    if (shareTargets.length === 0) {
+      await loadShareTargets();
+    }
+    try {
+      const lectureIds = (viewCourse.Lectures || []).map((l) => l.id);
+      const grantResults = await Promise.all(
+        lectureIds.map((lectureId) =>
+          api.lectureGrantList({ lectureId, token: accessToken }) as Promise<{
+            grants: Array<{ userId: string; canMap: boolean; revokedAt?: string | null }>;
+          }>,
+        ),
+      );
+
+      const counts = new Map<string, number>();
+      for (const result of grantResults) {
+        for (const grant of result.grants || []) {
+          if (!grant.revokedAt && grant.canMap) {
+            counts.set(grant.userId, (counts.get(grant.userId) || 0) + 1);
+          }
+        }
+      }
+      const fullySharedUserIds = [...counts.entries()]
+        .filter(([, count]) => count === lectureIds.length)
+        .map(([userId]) => userId);
+
+      setSelectedCourseLectureShareUserIds(fullySharedUserIds);
+      setOriginalCourseLectureShareUserIds(fullySharedUserIds);
+      setManualCourseLectureShareUserIds(fullySharedUserIds);
+    } catch (error) {
+      message.error(`전체 공유 정보 조회 실패: ${(error as Error).message}`);
+      setSelectedCourseLectureShareUserIds([]);
+      setOriginalCourseLectureShareUserIds([]);
+    }
+    setCourseLectureShareModalOpen(true);
+  };
+
+  const handleSaveCourseLectureShares = async () => {
+    if (!viewCourse || !accessToken) return;
+    const lectures = viewCourse.Lectures || [];
+    if (lectures.length === 0) return;
+
+    setCourseLectureShareSaveLoading(true);
+    try {
+      const selectedSet = new Set(selectedCourseLectureShareUserIds);
+      const originalSet = new Set(originalCourseLectureShareUserIds);
+      const toInvite = [...selectedSet].filter((id) => !originalSet.has(id));
+      const toRevoke = [...originalSet].filter((id) => !selectedSet.has(id));
+
+      await Promise.all([
+        ...toInvite.flatMap((userId) =>
+          lectures.map((lecture) =>
+            api.lectureGrantUpsert({
+              token: accessToken,
+              lectureId: lecture.id,
+              userId,
+              canMap: true,
+              canEdit: false,
+              canReshare: false,
+            }),
+          ),
+        ),
+        ...toRevoke.flatMap((userId) =>
+          lectures.map((lecture) =>
+            api.lectureGrantDelete({
+              token: accessToken,
+              lectureId: lecture.id,
+              userId,
+            }),
+          ),
+        ),
+      ]);
+
+      message.success("전체 강의 공유 설정이 저장되었습니다.");
+      setCourseLectureShareModalOpen(false);
+      await Promise.all([loadCourses(), loadShareInbox()]);
+    } catch (error) {
+      message.error(withReport("전체 강의 공유 저장 실패", error));
+    } finally {
+      setCourseLectureShareSaveLoading(false);
+    }
   };
 
   const handleAddInstructor = (instructorId: string) => {
@@ -615,6 +902,32 @@ export default function CoursesPage() {
     }
   };
 
+  const handleMapLecture = async () => {
+    if (!viewCourse || !accessToken) return;
+    const lectureId = mapLectureId.trim();
+    if (!lectureId) {
+      message.warning("매핑할 강의 ID를 입력하세요.");
+      return;
+    }
+    setMapLectureLoading(true);
+    try {
+      await api.lectureMap({
+        lectureId,
+        courseId: viewCourse.id,
+        order: mapLectureOrder,
+        token: accessToken,
+      });
+      message.success("강의가 코스에 연결되었습니다.");
+      setMapLectureId("");
+      setMapLectureOrder(undefined);
+      fetchCourseMutation.mutate(viewCourse.id);
+    } catch (error) {
+      message.error(`강의 매핑 실패: ${(error as Error).message}`);
+    } finally {
+      setMapLectureLoading(false);
+    }
+  };
+
   const columnMap: Record<string, ColumnType<Course>> = {
     [NO_COLUMN_KEY]: {
       title: "No",
@@ -639,7 +952,8 @@ export default function CoursesPage() {
       width: 80,
       render: (isOnline: boolean) => (isOnline ? "예" : "아니오"),
     },
-    goal: { title: "목표", dataIndex: "goal", key: "goal", ellipsis: true },
+    goal: { title: "교육 목표", dataIndex: "goal", key: "goal", ellipsis: true },
+    content: { title: "교육 내용", dataIndex: "content", key: "content", ellipsis: true },
     notes: { title: "비고", dataIndex: "notes", key: "notes", ellipsis: true },
     createdBy: {
       title: "등록자",
@@ -665,25 +979,114 @@ export default function CoursesPage() {
     actions: {
       title: "액션",
       key: "action",
-      width: 150,
-      render: (_: unknown, record: Course) => (
-        <Space>
-          <Button
-            icon={<EyeOutlined />}
-            size="small"
-            onClick={() => fetchCourseMutation.mutate(record.id)}
-          />
-          <Button
-            icon={<EditOutlined />}
-            size="small"
-            disabled={record.canEdit === false}
-            onClick={() => handleEdit(record)}
-          />
-        </Space>
-      ),
+      width: 180,
+      render: (_: unknown, record: Course) => {
+        const canEditByOwnership = record.canEdit !== false;
+        const canEditAction = canEditByOwnership && canUpsertCourseBySite;
+        const canDeleteAction =
+          !!accessToken &&
+          canDeleteCourseBySite &&
+          (canDeleteCourse || record.canEdit === true);
+        const showEditDisabledHint = isAdminOrOperator && !canEditAction;
+        const showDeleteDisabledHint = isAdminOrOperator && !canDeleteAction;
+
+        return (
+          <Space>
+            <Tooltip title="보기">
+              <Button
+                icon={<EyeOutlined />}
+                size="small"
+                onClick={() => fetchCourseMutation.mutate(record.id)}
+              />
+            </Tooltip>
+
+            {canEditAction ? (
+              <Tooltip title="수정">
+                <Button
+                  icon={<EditOutlined />}
+                  size="small"
+                  onClick={() => handleEdit(record)}
+                />
+              </Tooltip>
+            ) : showEditDisabledHint ? (
+              <Tooltip
+                title={
+                  !canEditByOwnership
+                    ? "본인 코스만 수정할 수 있습니다."
+                    : "사이트 권한 설정에 따라 코스 등록/수정 기능이 비활성화되었습니다."
+                }
+              >
+                <span>
+                  <Button icon={<EditOutlined />} size="small" disabled />
+                </span>
+              </Tooltip>
+            ) : null}
+
+            {canDeleteAction ? (
+              <Popconfirm
+                title="이 코스를 삭제하시겠습니까?"
+                description="삭제하면 코스와 연결된 강의/일정/공유 정보가 함께 삭제됩니다."
+                okText="삭제"
+                okButtonProps={{ danger: true }}
+                cancelText="취소"
+                onConfirm={() => {
+                  if (!accessToken) {
+                    message.warning("로그인 후 이용해주세요.");
+                    return;
+                  }
+                  courseDeleteMutation.mutate(record.id);
+                }}
+              >
+                <Tooltip title="삭제">
+                  <Button
+                    icon={<DeleteOutlined />}
+                    size="small"
+                    danger
+                    loading={courseDeleteMutation.isPending}
+                  />
+                </Tooltip>
+              </Popconfirm>
+            ) : showDeleteDisabledHint ? (
+              <Tooltip
+                title={
+                  !accessToken
+                    ? "로그인 후 이용해주세요."
+                    : !canDeleteCourseBySite
+                      ? "사이트 권한 설정에 따라 코스 삭제 기능이 비활성화되었습니다."
+                      : "삭제 권한이 없습니다. (관리자/운영자 또는 본인 코스)"
+                }
+              >
+                <span>
+                  <Button icon={<DeleteOutlined />} size="small" danger disabled />
+                </span>
+              </Tooltip>
+            ) : null}
+          </Space>
+        );
+      },
     },
   };
   const columns = buildColumns<Course>(columnConfigs, columnMap);
+
+  if (!canAccessCoursesMenu) {
+    return (
+      <Result
+        status="403"
+        title="메뉴 비활성화"
+        subTitle="사이트 관리의 권한관리에서 코스 관리 메뉴가 비활성화되었습니다."
+      />
+    );
+  }
+
+  if (!canListCourseBySite && !canListMineCourseBySite) {
+    return (
+      <Result
+        status="403"
+        title="조회 권한 없음"
+        subTitle="사이트 관리의 권한관리에서 코스 조회 권한(course.list 또는 course.listMine)을 허용해주세요."
+      />
+    );
+  }
 
   const lectureColumns = [
     {
@@ -720,9 +1123,15 @@ export default function CoursesPage() {
     {
       title: "액션",
       key: "action",
-      width: 100,
+      width: 140,
       render: (_: unknown, record: Lecture) => (
         <Space>
+          <Button
+            icon={<ShareAltOutlined />}
+            size="small"
+            disabled={!accessToken}
+            onClick={() => handleOpenLectureShareModal(record)}
+          />
           <Button
             icon={<EditOutlined />}
             size="small"
@@ -803,9 +1212,25 @@ export default function CoursesPage() {
           marginBottom: 16,
           display: "flex",
           justifyContent: "space-between",
+          alignItems: "center",
         }}
       >
-        <h2 style={{ margin: 0 }}>코스 관리</h2>
+        <Space size={8} align="center">
+          <h2 style={{ margin: 0 }}>코스 관리</h2>
+          {user?.role === "admin" && (
+            <Tooltip title="목차 설정으로 이동">
+              <Button
+                type="text"
+                size="small"
+                icon={<SettingOutlined />}
+                onClick={() =>
+                  navigate("/admin/site-settings?tab=outline&tableKey=courses")
+                }
+                style={{ padding: 4 }}
+              />
+            </Tooltip>
+          )}
+        </Space>
         <Space>
           <Button
             icon={<ReloadOutlined />}
@@ -819,17 +1244,35 @@ export default function CoursesPage() {
             onSearch={(id) => id && fetchCourseMutation.mutate(id)}
             style={{ width: 250 }}
           />
-          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
-            새 코스
-          </Button>
+          {canUpsertCourseBySite ? (
+            <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
+              새 코스
+            </Button>
+          ) : isAdminOrOperator ? (
+            <Tooltip title="사이트 권한 설정에 따라 코스 등록/수정 기능이 비활성화되었습니다.">
+              <span>
+                <Button type="primary" icon={<PlusOutlined />} disabled>
+                  새 코스
+                </Button>
+              </span>
+            </Tooltip>
+          ) : null}
         </Space>
       </div>
 
       <Alert
         type="info"
         showIcon
-        message="코스 목록과 기본 정보를 관리합니다."
-        description="리스트 컬럼은 사이트 관리의 목차 설정에 따라 표시/순서가 변경됩니다."
+        message={
+          isMineOnlyView
+            ? "내가 생성한 코스 목록만 조회 중입니다."
+            : "코스 목록과 기본 정보를 관리합니다."
+        }
+        description={
+          isMineOnlyView
+            ? "사이트 권한 설정에 따라 course.list가 비활성화되어 course.listMine으로 조회합니다."
+            : "리스트 컬럼은 사이트 관리의 목차 설정에 따라 표시/순서가 변경됩니다."
+        }
         style={{ marginBottom: 16 }}
       />
 
@@ -847,6 +1290,10 @@ export default function CoursesPage() {
         open={isModalOpen}
         onOk={async () => {
           try {
+            if (!canUpsertCourseBySite) {
+              message.warning("사이트 권한 설정에 따라 코스 등록/수정 기능이 비활성화되었습니다.");
+              return;
+            }
             const values = await form.validateFields();
             const result = (await api.courseUpsert({
               ...values,
@@ -889,7 +1336,7 @@ export default function CoursesPage() {
               return;
             }
             if (error instanceof Error) {
-              message.error(`저장 실패: ${error.message}`);
+              message.error(withReport("저장 실패", error));
             }
           }
         }}
@@ -929,6 +1376,9 @@ export default function CoursesPage() {
             <Switch />
           </Form.Item>
           <Form.Item name="goal" label="교육 목표">
+            <Input.TextArea rows={2} />
+          </Form.Item>
+          <Form.Item name="content" label="교육 내용">
             <Input.TextArea rows={2} />
           </Form.Item>
           <Form.Item name="notes" label="비고">
@@ -995,6 +1445,8 @@ export default function CoursesPage() {
         onCancel={() => {
           setViewCourse(null);
           setCourseExportLabel("");
+          setMapLectureId("");
+          setMapLectureOrder(undefined);
         }}
         footer={[
           <Button key="close" onClick={() => setViewCourse(null)}>
@@ -1040,6 +1492,9 @@ export default function CoursesPage() {
               <strong>교육 목표:</strong> {viewCourse.goal || "-"}
             </p>
             <p>
+              <strong>교육 내용:</strong> {viewCourse.content || "-"}
+            </p>
+            <p>
               <strong>비고:</strong> {viewCourse.notes || "-"}
             </p>
             <p>
@@ -1062,17 +1517,51 @@ export default function CoursesPage() {
                 marginBottom: 12,
               }}
             >
-              <h3 style={{ margin: 0 }}>강의 목록</h3>
-              <Button
-                type="primary"
-                size="small"
-                icon={<PlusOutlined />}
-                disabled={viewCourse?.canEdit === false}
-                onClick={handleAddLecture}
-              >
-                강의 추가
-              </Button>
+              <h3 style={{ margin: 0 }}>코스 목차</h3>
+              <Space>
+                <Button
+                  disabled={viewCourse?.canEdit === false}
+                  onClick={handleOpenCourseLectureShareModal}
+                >
+                  선택 코스 공유 ON/OFF
+                </Button>
+                <Button
+                  type="primary"
+                  size="small"
+                  icon={<PlusOutlined />}
+                  disabled={viewCourse?.canEdit === false}
+                  onClick={handleAddLecture}
+                >
+                  강의 추가
+                </Button>
+              </Space>
             </div>
+
+            <Space style={{ marginBottom: 12 }} wrap>
+              <Input
+                placeholder="기존 강의 ID 입력"
+                value={mapLectureId}
+                onChange={(e) => setMapLectureId(e.target.value)}
+                style={{ width: 260 }}
+              />
+              <InputNumber
+                min={0}
+                placeholder="순서(선택)"
+                value={mapLectureOrder}
+                onChange={(value) =>
+                  setMapLectureOrder(
+                    typeof value === "number" ? value : undefined,
+                  )
+                }
+              />
+              <Button
+                onClick={handleMapLecture}
+                loading={mapLectureLoading}
+                disabled={!accessToken}
+              >
+                기존 강의 연결
+              </Button>
+            </Space>
 
           <Table
               columns={lectureColumns}
@@ -1126,6 +1615,165 @@ export default function CoursesPage() {
             </Space>
           </div>
         )}
+      </Modal>
+
+      <Modal
+        title={shareLecture ? `강의 공유 관리 - ${shareLecture.title}` : "강의 공유 관리"}
+        open={lectureShareModalOpen}
+        onCancel={() => {
+          setLectureShareModalOpen(false);
+          setShareLecture(null);
+        }}
+        footer={[
+          <Button
+            key="cancel"
+            onClick={() => {
+              setLectureShareModalOpen(false);
+              setShareLecture(null);
+            }}
+          >
+            취소
+          </Button>,
+          <Button
+            key="save"
+            type="primary"
+            loading={lectureShareSaveLoading}
+            onClick={handleSaveLectureShares}
+          >
+            저장
+          </Button>,
+        ]}
+      >
+        <Form layout="vertical">
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 12 }}
+            message="현재 선택한 강의 1건에만 적용됩니다."
+          />
+          <Form.Item label="전체공유 (대상 사용자 전체 선택/해제)">
+            <Space>
+              <Switch
+                checked={
+                  shareTargets.length > 0 &&
+                  selectedLectureShareUserIds.length === shareTargets.length
+                }
+                onChange={(checked) => {
+                  if (checked) {
+                    setManualLectureShareUserIds(selectedLectureShareUserIds);
+                    setSelectedLectureShareUserIds(shareTargets.map((t) => t.id));
+                  } else {
+                    setSelectedLectureShareUserIds(manualLectureShareUserIds);
+                  }
+                }}
+                disabled={shareTargets.length === 0}
+              />
+              <span>{shareTargets.length === 0 ? "공유 대상 없음" : "ON/OFF"}</span>
+            </Space>
+          </Form.Item>
+          <Form.Item label="공유 대상 사용자 (기본: 매핑 가능 / 수정 불가)">
+            {shareTargets.length > 0 &&
+            selectedLectureShareUserIds.length === shareTargets.length ? (
+              <Alert
+                type="info"
+                showIcon
+                message="전체공유 ON 상태입니다. 모든 대상자에게 공유됩니다."
+              />
+            ) : (
+              <Checkbox.Group
+                value={selectedLectureShareUserIds}
+                onChange={(vals) => {
+                  const next = vals as string[];
+                  setSelectedLectureShareUserIds(next);
+                  if (next.length < shareTargets.length) {
+                    setManualLectureShareUserIds(next);
+                  }
+                }}
+                style={{ width: "100%" }}
+              >
+                <Space direction="vertical" style={{ width: "100%" }}>
+                  {shareTargets.length === 0 ? (
+                    <span style={{ color: "#999" }}>공유 가능한 사용자가 없습니다.</span>
+                  ) : (
+                    shareTargets.map((t) => (
+                      <Checkbox key={t.id} value={t.id}>
+                        {t.name} ({t.email}) - {t.role}
+                      </Checkbox>
+                    ))
+                  )}
+                </Space>
+              </Checkbox.Group>
+            )}
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title={viewCourse ? `선택 코스 전체 공유 - ${viewCourse.title}` : "선택 코스 전체 공유"}
+        open={courseLectureShareModalOpen}
+        onOk={handleSaveCourseLectureShares}
+        onCancel={() => {
+          setCourseLectureShareModalOpen(false);
+        }}
+        confirmLoading={courseLectureShareSaveLoading}
+        okText="저장"
+      >
+        <Form layout="vertical">
+          <Form.Item label="전체공유 (대상 사용자 전체 선택/해제)">
+            <Space>
+              <Switch
+                checked={
+                  shareTargets.length > 0 &&
+                  selectedCourseLectureShareUserIds.length === shareTargets.length
+                }
+                onChange={(checked) => {
+                  if (checked) {
+                    setManualCourseLectureShareUserIds(selectedCourseLectureShareUserIds);
+                    setSelectedCourseLectureShareUserIds(shareTargets.map((t) => t.id));
+                  } else {
+                    setSelectedCourseLectureShareUserIds(manualCourseLectureShareUserIds);
+                  }
+                }}
+                disabled={shareTargets.length === 0}
+              />
+              <span>{shareTargets.length === 0 ? "공유 대상 없음" : "ON/OFF"}</span>
+            </Space>
+          </Form.Item>
+          <Form.Item label="공유 대상 사용자 (선택 코스의 모든 강의에 일괄 적용)">
+            {shareTargets.length > 0 &&
+            selectedCourseLectureShareUserIds.length === shareTargets.length ? (
+              <Alert
+                type="info"
+                showIcon
+                message="전체공유 ON 상태입니다. 모든 대상자에게 공유됩니다."
+              />
+            ) : (
+              <Checkbox.Group
+                value={selectedCourseLectureShareUserIds}
+                onChange={(vals) => {
+                  const next = vals as string[];
+                  setSelectedCourseLectureShareUserIds(next);
+                  if (next.length < shareTargets.length) {
+                    setManualCourseLectureShareUserIds(next);
+                  }
+                }}
+                style={{ width: "100%" }}
+              >
+                <Space direction="vertical" style={{ width: "100%" }}>
+                  {shareTargets.length === 0 ? (
+                    <span style={{ color: "#999" }}>공유 가능한 사용자가 없습니다.</span>
+                  ) : (
+                    shareTargets.map((t) => (
+                      <Checkbox key={t.id} value={t.id}>
+                        {t.name} ({t.email}) - {t.role}
+                      </Checkbox>
+                    ))
+                  )}
+                </Space>
+              </Checkbox.Group>
+            )}
+          </Form.Item>
+        </Form>
       </Modal>
 
       {/* Instructor Picker Modal */}

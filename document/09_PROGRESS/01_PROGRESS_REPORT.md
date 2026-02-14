@@ -1,6 +1,6 @@
 # 프로젝트 진행 상황 보고서
 
-**최종 업데이트:** 2026년 2월 11일 수요일
+**최종 업데이트:** 2026년 2월 13일 금요일
 
 ---
 
@@ -14,6 +14,29 @@ HR 강의 계획서를 관리하고 PDF로 출력하는 MCP(Model Context Protoc
 
 - 2026-02-10: 문서 정합성 정리(PDF 렌더 흐름/템플릿 가이드/업로드/시드 스크립트) 업데이트
 - 2026-02-11: 연락처 단일화(User.phone/website), 강사/코스 내보내기 흐름 보강, 코스 공유/권한 제어 1차 반영
+- 2026-02-13: 코스 삭제(소프트) MCP 도구 추가, 코스/강사/템플릿/회원 헤더에서 목차관리 바로가기 UI 추가, 모바일 레이아웃(햄버거 메뉴) 적용, 강의 공유/재공유 정책 DM 문서 추가
+
+---
+
+## 13. 2026-02-13 작업 내역
+
+### 완료
+- 코스 삭제(소프트 삭제) 도구 추가
+  - `src/tools/course.ts`: `course.delete` 스키마/핸들러 추가
+  - `src/transport.ts`, `src/mcp-server.ts`: 도구 등록
+  - `ui/src/api/mcpClient.ts`: `courseDelete` API 추가
+  - `ui/src/pages/CoursesPage.tsx`: 삭제 액션 + 권한 툴팁 UX 추가
+- 모바일 레이아웃 적용 (좌측 메뉴 → Drawer)
+  - `ui/src/components/Layout.tsx`
+- 목차관리(테이블 헤더 설정) 빠른 이동 UI
+  - 코스/강사/템플릿/회원 헤더에 관리자 전용 아이콘 추가
+  - 사이트 관리 탭/테이블키 쿼리 파라미터 반영 (`tab`, `tableKey`)
+- 정책 문서 추가
+  - `document/06_SECURITY_POLICY/LECTURE_SHARE_POLICY_DM.md`
+
+### 진행 중
+- 강의/코스 다대다 구조(B안) 설계 및 마이그레이션 계획 수립
+  - 공유/재공유 권한 누적 정책 반영
 
 ---
 

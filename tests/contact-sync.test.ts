@@ -3,12 +3,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const prismaMock = {
   user: {
     findUnique: vi.fn(),
+    findFirst: vi.fn(),
     update: vi.fn(),
   },
   instructorProfile: {
     upsert: vi.fn(),
   },
   instructor: {
+    findFirst: vi.fn(),
     upsert: vi.fn(),
   },
 };
@@ -23,6 +25,7 @@ vi.mock("../src/services/prisma.js", () => ({
 
 vi.mock("../src/services/jwt.js", () => ({
   verifyToken: jwtMock.verifyToken,
+  verifyRefreshToken: vi.fn(),
 }));
 
 describe("contact sync", () => {
@@ -73,6 +76,18 @@ describe("contact sync", () => {
   });
 
   it("instructor.upsert syncs User.phone and does not write Instructor.phone", async () => {
+    prismaMock.user.findFirst
+      .mockResolvedValueOnce({
+        id: "u1",
+        role: "instructor",
+      })
+      .mockResolvedValueOnce({
+        id: "u1",
+      });
+    prismaMock.instructor.findFirst.mockResolvedValue({
+      id: "i1",
+      userId: "u1",
+    });
     prismaMock.instructor.upsert.mockResolvedValue({
       id: "i1",
       name: "강사",

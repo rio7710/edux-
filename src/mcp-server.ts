@@ -3,9 +3,13 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import cors from "cors";
 import express from "express";
 import {
+    courseDeleteHandler,
+    courseDeleteSchema,
     courseGetHandler,
     courseGetSchema,
     courseListHandler,
+    courseListMineHandler,
+    courseListMineSchema,
     courseListSchema,
     courseShareInviteHandler,
     courseShareInviteSchema,
@@ -19,6 +23,8 @@ import {
     courseShareTargetsSchema,
     courseShareRespondHandler,
     courseShareRespondSchema,
+    courseShareLeaveHandler,
+    courseShareLeaveSchema,
     courseUpsertHandler,
     courseUpsertSchema,
 } from "./tools/course.js";
@@ -35,10 +41,22 @@ import {
 import {
     lectureDeleteHandler,
     lectureDeleteSchema,
+    lectureGrantDeleteHandler,
+    lectureGrantDeleteSchema,
+    lectureGrantListMineHandler,
+    lectureGrantListMineSchema,
+    lectureGrantLeaveHandler,
+    lectureGrantLeaveSchema,
+    lectureGrantListHandler,
+    lectureGrantListSchema,
+    lectureGrantUpsertHandler,
+    lectureGrantUpsertSchema,
     lectureGetHandler,
     lectureGetSchema,
     lectureListHandler,
     lectureListSchema,
+    lectureMapHandler,
+    lectureMapSchema,
     lectureUpsertHandler,
     lectureUpsertSchema,
 } from "./tools/lecture.js";
@@ -116,6 +134,8 @@ import {
 import {
     siteSettingGetSchema,
     siteSettingGetHandler,
+    siteSettingGetManySchema,
+    siteSettingGetManyHandler,
     siteSettingUpsertSchema,
     siteSettingUpsertHandler,
 } from "./tools/siteSetting.js";
@@ -129,6 +149,54 @@ import {
     documentShareHandler,
     documentShareSchema,
 } from "./tools/document.js";
+import {
+    messageListHandler,
+    messageListSchema,
+    messageMarkAllReadHandler,
+    messageMarkAllReadSchema,
+    messageDeleteHandler,
+    messageDeleteSchema,
+    messageMarkReadHandler,
+    messageMarkReadSchema,
+    messageSeedDummyHandler,
+    messageSeedDummySchema,
+    messageSendHandler,
+    messageSendSchema,
+    messageRecipientListHandler,
+    messageRecipientListSchema,
+    messageUnreadCountHandler,
+    messageUnreadCountSchema,
+    messageUnreadSummaryHandler,
+    messageUnreadSummarySchema,
+} from "./tools/message.js";
+import {
+    authzCheckHandler,
+    authzCheckSchema,
+    groupDeleteHandler,
+    groupDeleteSchema,
+    groupListHandler,
+    groupListSchema,
+    groupMemberAddHandler,
+    groupMemberAddSchema,
+    groupMemberListHandler,
+    groupMemberListSchema,
+    groupMemberRemoveHandler,
+    groupMemberRemoveSchema,
+    groupMemberUpdateRoleHandler,
+    groupMemberUpdateRoleSchema,
+    groupUpsertHandler,
+    groupUpsertSchema,
+    permissionGrantDeleteHandler,
+    permissionGrantDeleteSchema,
+    permissionGrantListHandler,
+    permissionGrantListSchema,
+    permissionGrantUpsertHandler,
+    permissionGrantUpsertSchema,
+} from "./tools/group.js";
+import {
+    dashboardBootstrapHandler,
+    dashboardBootstrapSchema,
+} from "./tools/dashboard.js";
 
 // MCP 서버 인스턴스 생성
 const server = new McpServer({
@@ -158,6 +226,18 @@ server.tool(
   "코스 목록 조회 (등록자 이름으로 표시)",
   courseListSchema,
   async (args) => courseListHandler(args),
+);
+server.tool(
+  "course.listMine",
+  "내 코스 목록 조회",
+  courseListMineSchema,
+  async (args) => courseListMineHandler(args),
+);
+server.tool(
+  "course.delete",
+  "코스 삭제 (소프트 삭제)",
+  courseDeleteSchema,
+  async (args) => courseDeleteHandler(args),
 );
 server.tool(
   "course.shareInvite",
@@ -194,6 +274,12 @@ server.tool(
   "코스 공유 대상 사용자 목록 조회",
   courseShareTargetsSchema,
   async (args) => courseShareTargetsHandler(args),
+);
+server.tool(
+  "course.shareLeave",
+  "공유 수신자가 본인 코스 공유 해제",
+  courseShareLeaveSchema,
+  async (args) => courseShareLeaveHandler(args),
 );
 
 // 툴 등록: instructor.upsert
@@ -234,6 +320,42 @@ server.tool(
   "강의 생성 또는 수정",
   lectureUpsertSchema,
   async (args) => lectureUpsertHandler(args),
+);
+server.tool(
+  "lecture.map",
+  "기존 강의를 코스에 연결",
+  lectureMapSchema,
+  async (args) => lectureMapHandler(args),
+);
+server.tool(
+  "lecture.grant.list",
+  "강의 공유 권한 목록 조회",
+  lectureGrantListSchema,
+  async (args) => lectureGrantListHandler(args),
+);
+server.tool(
+  "lecture.grant.upsert",
+  "강의 공유 권한 생성/수정",
+  lectureGrantUpsertSchema,
+  async (args) => lectureGrantUpsertHandler(args),
+);
+server.tool(
+  "lecture.grant.delete",
+  "강의 공유 권한 해제",
+  lectureGrantDeleteSchema,
+  async (args) => lectureGrantDeleteHandler(args),
+);
+server.tool(
+  "lecture.grant.listMine",
+  "내 강의 공유 권한 목록 조회",
+  lectureGrantListMineSchema,
+  async (args) => lectureGrantListMineHandler(args),
+);
+server.tool(
+  "lecture.grant.leave",
+  "공유 수신자가 본인 강의 공유 해제",
+  lectureGrantLeaveSchema,
+  async (args) => lectureGrantLeaveHandler(args),
 );
 server.tool("lecture.get", "강의 단건 조회", lectureGetSchema, async (args) =>
   lectureGetHandler(args),
@@ -521,6 +643,12 @@ server.tool(
   async (args) => siteSettingGetHandler(args),
 );
 server.tool(
+  "siteSetting.getMany",
+  "사이트 설정 다건 조회",
+  siteSettingGetManySchema,
+  async (args) => siteSettingGetManyHandler(args),
+);
+server.tool(
   "siteSetting.upsert",
   "사이트 설정 저장",
   siteSettingUpsertSchema,
@@ -551,6 +679,132 @@ server.tool(
   "문서 공유 토큰 해제",
   documentRevokeShareSchema,
   async (args) => documentRevokeShareHandler(args),
+);
+server.tool(
+  "message.list",
+  "내 메시지 목록 조회",
+  messageListSchema,
+  async (args) => messageListHandler(args),
+);
+server.tool(
+  "message.unreadCount",
+  "안 읽은 메시지 개수 조회",
+  messageUnreadCountSchema,
+  async (args) => messageUnreadCountHandler(args),
+);
+server.tool(
+  "message.unreadSummary",
+  "안 읽은 메시지 카테고리 요약 조회",
+  messageUnreadSummarySchema,
+  async (args) => messageUnreadSummaryHandler(args),
+);
+server.tool(
+  "message.markRead",
+  "메시지 읽음 처리",
+  messageMarkReadSchema,
+  async (args) => messageMarkReadHandler(args),
+);
+server.tool(
+  "message.markAllRead",
+  "전체 메시지 읽음 처리",
+  messageMarkAllReadSchema,
+  async (args) => messageMarkAllReadHandler(args),
+);
+server.tool(
+  "message.delete",
+  "메시지 삭제",
+  messageDeleteSchema,
+  async (args) => messageDeleteHandler(args),
+);
+server.tool(
+  "message.send",
+  "메시지 전송",
+  messageSendSchema,
+  async (args) => messageSendHandler(args),
+);
+server.tool(
+  "message.recipientList",
+  "메시지 수신자 목록 조회",
+  messageRecipientListSchema,
+  async (args) => messageRecipientListHandler(args),
+);
+server.tool(
+  "message.seedDummy",
+  "더미 메시지 생성",
+  messageSeedDummySchema,
+  async (args) => messageSeedDummyHandler(args),
+);
+server.tool(
+  "group.list",
+  "그룹 목록 조회",
+  groupListSchema,
+  async (args) => groupListHandler(args),
+);
+server.tool(
+  "group.upsert",
+  "그룹 생성/수정",
+  groupUpsertSchema,
+  async (args) => groupUpsertHandler(args),
+);
+server.tool(
+  "group.delete",
+  "그룹 삭제(소프트 삭제)",
+  groupDeleteSchema,
+  async (args) => groupDeleteHandler(args),
+);
+server.tool(
+  "group.member.list",
+  "그룹 멤버 목록 조회",
+  groupMemberListSchema,
+  async (args) => groupMemberListHandler(args),
+);
+server.tool(
+  "group.member.add",
+  "그룹 멤버 추가",
+  groupMemberAddSchema,
+  async (args) => groupMemberAddHandler(args),
+);
+server.tool(
+  "group.member.remove",
+  "그룹 멤버 삭제",
+  groupMemberRemoveSchema,
+  async (args) => groupMemberRemoveHandler(args),
+);
+server.tool(
+  "group.member.updateRole",
+  "그룹 멤버 역할 변경",
+  groupMemberUpdateRoleSchema,
+  async (args) => groupMemberUpdateRoleHandler(args),
+);
+server.tool(
+  "permission.grant.list",
+  "권한 정책 목록 조회",
+  permissionGrantListSchema,
+  async (args) => permissionGrantListHandler(args),
+);
+server.tool(
+  "permission.grant.upsert",
+  "권한 정책 생성/수정",
+  permissionGrantUpsertSchema,
+  async (args) => permissionGrantUpsertHandler(args),
+);
+server.tool(
+  "permission.grant.delete",
+  "권한 정책 삭제",
+  permissionGrantDeleteSchema,
+  async (args) => permissionGrantDeleteHandler(args),
+);
+server.tool(
+  "authz.check",
+  "권한 평가",
+  authzCheckSchema,
+  async (args) => authzCheckHandler(args),
+);
+server.tool(
+  "dashboard.bootstrap",
+  "대시보드 초기 데이터 일괄 조회",
+  dashboardBootstrapSchema,
+  async (args) => dashboardBootstrapHandler(args),
 );
 
 // Express 서버로 MCP HTTP transport 실행

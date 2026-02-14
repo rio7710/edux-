@@ -1,9 +1,19 @@
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { verifyToken } from "../services/jwt.js";
 import { prisma } from "../services/prisma.js";
 
 const nullableString = z.string().nullable().optional();
 const nullableStringArray = z.array(z.string()).nullable().optional();
+
+function toNullableJsonValue<T>(
+  value: T | null | undefined,
+): Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return Prisma.JsonNull;
+  return value as Prisma.InputJsonValue;
+}
 
 // createdBy ID를 사용자 이름으로 변환하는 헬퍼 함수
 async function resolveCreatorNames<T extends { createdBy?: string | null }>(
@@ -113,39 +123,52 @@ export async function instructorUpsertHandler(args: {
   token?: string;
 }) {
   try {
-    const instructorId = args.id || `i_${Date.now()}`;
-
-    // 토큰에서 사용자 ID 추출
-    let createdBy: string | undefined;
-    let payload: { userId: string; role: string } | undefined;
-    if (args.token) {
-      try {
-        payload = verifyToken(args.token) as { userId: string; role: string };
-        createdBy = payload.userId;
-      } catch {
-        // 토큰 검증 실패시 무시
-      }
+    if (!args.token) {
+      return {
+        content: [{ type: "text" as const, text: "인증이 필요합니다." }],
+        isError: true,
+      };
     }
 
+    const instructorId = args.id || `i_${randomUUID()}`;
+
+    let payload: { userId: string; role: string };
+    try {
+      payload = verifyToken(args.token) as { userId: string; role: string };
+    } catch {
+      return {
+        content: [{ type: "text" as const, text: "인증 실패" }],
+        isError: true,
+      };
+    }
+
+    const actor = await prisma.user.findFirst({
+      where: { id: payload.userId, isActive: true, deletedAt: null },
+      select: { id: true, role: true },
+    });
+    if (!actor) {
+      return {
+        content: [{ type: "text" as const, text: "사용자를 찾을 수 없습니다." }],
+        isError: true,
+      };
+    }
+
+    const createdBy = actor.id;
     const isAdminOperator =
-      payload?.role === "admin" || payload?.role === "operator";
+      actor.role === "admin" || actor.role === "operator";
 
     // 강사는 반드시 User와 연결되어야 함
-    let resolvedUserId = args.userId;
-    if (payload) {
-      if (!isAdminOperator) {
-        resolvedUserId = payload.userId;
-      } else if (!resolvedUserId) {
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: "관리자/운영자는 사용자 ID를 선택해야 합니다.",
-            },
-          ],
-          isError: true,
-        };
-      }
+    let resolvedUserId = isAdminOperator ? args.userId : actor.id;
+    if (isAdminOperator && !resolvedUserId) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: "관리자/운영자는 사용자 ID를 선택해야 합니다.",
+          },
+        ],
+        isError: true,
+      };
     }
 
     if (!resolvedUserId) {
@@ -156,6 +179,38 @@ export async function instructorUpsertHandler(args: {
             text: "강사 등록은 사용자 ID가 필요합니다.",
           },
         ],
+        isError: true,
+      };
+    }
+
+    if (args.id) {
+      const existing = await prisma.instructor.findFirst({
+        where: { id: args.id, deletedAt: null },
+        select: { id: true, userId: true },
+      });
+      if (!existing) {
+        return {
+          content: [
+            { type: "text" as const, text: `Instructor not found: ${args.id}` },
+          ],
+          isError: true,
+        };
+      }
+      if (!isAdminOperator && existing.userId !== actor.id) {
+        return {
+          content: [{ type: "text" as const, text: "본인 강사 정보만 수정할 수 있습니다." }],
+          isError: true,
+        };
+      }
+    }
+
+    const targetUser = await prisma.user.findFirst({
+      where: { id: resolvedUserId, isActive: true, deletedAt: null },
+      select: { id: true },
+    });
+    if (!targetUser) {
+      return {
+        content: [{ type: "text" as const, text: "연결할 사용자를 찾을 수 없습니다." }],
         isError: true,
       };
     }
@@ -172,13 +227,13 @@ export async function instructorUpsertHandler(args: {
         avatarUrl: args.avatarUrl,
         tagline: args.tagline,
         bio: args.bio,
-        specialties: args.specialties || [],
-        certifications: args.certifications || undefined,
-        awards: args.awards || [],
+        specialties: args.specialties ?? [],
+        certifications: toNullableJsonValue(args.certifications),
+        awards: args.awards ?? [],
         links: args.links,
-        degrees: args.degrees || undefined,
-        careers: args.careers || undefined,
-        publications: args.publications || undefined,
+        degrees: toNullableJsonValue(args.degrees),
+        careers: toNullableJsonValue(args.careers),
+        publications: toNullableJsonValue(args.publications),
         createdBy,
       },
       update: {
@@ -190,13 +245,14 @@ export async function instructorUpsertHandler(args: {
         avatarUrl: args.avatarUrl,
         tagline: args.tagline,
         bio: args.bio,
-        specialties: args.specialties || [],
-        certifications: args.certifications || undefined,
-        awards: args.awards || [],
+        specialties:
+          args.specialties === undefined ? undefined : args.specialties || [],
+        certifications: toNullableJsonValue(args.certifications),
+        awards: args.awards === undefined ? undefined : args.awards || [],
         links: args.links,
-        degrees: args.degrees || undefined,
-        careers: args.careers || undefined,
-        publications: args.publications || undefined,
+        degrees: toNullableJsonValue(args.degrees),
+        careers: toNullableJsonValue(args.careers),
+        publications: toNullableJsonValue(args.publications),
       },
     });
     if (args.phone !== undefined) {

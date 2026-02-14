@@ -1,13 +1,13 @@
 import {
     ExclamationCircleOutlined,
     LockOutlined,
-    MinusCircleOutlined,
-    PlusOutlined,
     UserOutlined,
 } from "@ant-design/icons";
 import {
+    Avatar,
     Button,
     Card,
+    theme,
     Descriptions,
     Divider,
     Form,
@@ -17,12 +17,19 @@ import {
     Select,
     Space,
     Tag,
+    Tabs,
     Typography,
 } from "antd";
 import { useEffect, useState } from "react";
+import type { RcFile } from "antd/es/upload";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api/mcpClient";
 import { useAuth } from "../contexts/AuthContext";
+import AvatarUploadField from "../components/AvatarUploadField";
+import InstructorCareerSection from "../components/InstructorCareerSection";
+import PlannedFeaturePanel from "../components/PlannedFeaturePanel";
+import SecuritySettingSection from "../components/SecuritySettingSection";
+import { parseMcpError } from "../utils/error";
 
 const { Title, Text } = Typography;
 
@@ -34,6 +41,13 @@ interface InstructorProfileData {
   phone?: string | null;
   website?: string | null;
   links?: unknown;
+  degrees?: Degree[] | null;
+  careers?: Career[] | null;
+  publications?: Publication[] | null;
+  certifications?: Certification[] | null;
+  specialties?: string[] | null;
+  affiliation?: string | null;
+  email?: string | null;
   isApproved?: boolean;
   isPending?: boolean;
 }
@@ -83,7 +97,10 @@ interface InstructorEntityData {
   title?: string | null;
   email?: string | null;
   phone?: string | null;
+  avatarUrl?: string | null;
   affiliation?: string | null;
+  tagline?: string | null;
+  awards?: string[] | null;
   bio?: string | null;
   specialties?: string[] | null;
   degrees?: Degree[] | null;
@@ -94,9 +111,11 @@ interface InstructorEntityData {
 
 const toOptionalString = (value: unknown): string | undefined =>
   typeof value === "string" ? value : undefined;
+const SERVER_URL = "";
 
 export default function ProfilePage() {
   const { user, accessToken, logout, updateUser } = useAuth();
+  const { token } = theme.useToken();
   const navigate = useNavigate();
   const [nameForm] = Form.useForm();
   const [passwordForm] = Form.useForm();
@@ -108,6 +127,7 @@ export default function ProfilePage() {
   const [passwordLoading, setPasswordLoading] = useState(false);
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [instructorLoading, setInstructorLoading] = useState(false);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
@@ -116,6 +136,8 @@ export default function ProfilePage() {
   const [profileId, setProfileId] = useState<string | null>(null);
   const [instructorProfile, setInstructorProfile] = useState<InstructorProfileData | null>(null);
   const [instructorEntity, setInstructorEntity] = useState<InstructorEntityData | null>(null);
+  const [profileTab, setProfileTab] = useState<"overview" | "instructor" | "security">("overview");
+  const [avatarUploading, setAvatarUploading] = useState(false);
 
   if (!user || !accessToken) {
     return (
@@ -128,13 +150,7 @@ export default function ProfilePage() {
     );
   }
 
-  const parseError = (errorMessage: string): string => {
-    if (errorMessage.includes("MCP error")) {
-      const match = errorMessage.match(/MCP error -?\d+: (.+)/);
-      if (match) return match[1];
-    }
-    return errorMessage;
-  };
+  const parseError = (errorMessage: string): string => parseMcpError(errorMessage);
 
   const normalizeInstructorPayload = (values: any) => {
     let parsedLinks: unknown = undefined;
@@ -176,10 +192,55 @@ export default function ProfilePage() {
     };
   };
 
+  const handleUserAvatarUpload = async (info: { file: RcFile }) => {
+    try {
+      setAvatarUploading(true);
+      const result = await api.uploadFile(info.file);
+      nameForm.setFieldValue("avatarUrl", result.url);
+      message.success("프로필 사진이 업로드되었습니다.");
+    } catch {
+      message.error("프로필 사진 업로드에 실패했습니다.");
+    } finally {
+      setAvatarUploading(false);
+    }
+  };
+
+  const handleInstructorAvatarUpload = async (info: { file: RcFile }) => {
+    try {
+      setAvatarUploading(true);
+      const result = await api.uploadFile(info.file);
+      instructorDetailForm.setFieldValue("avatarUrl", result.url);
+      message.success("강사 사진이 업로드되었습니다.");
+    } catch {
+      message.error("강사 사진 업로드에 실패했습니다.");
+    } finally {
+      setAvatarUploading(false);
+    }
+  };
+
+  const handleInstructorRequestAvatarUpload = async (info: { file: RcFile }) => {
+    try {
+      setAvatarUploading(true);
+      const result = await api.uploadFile(info.file);
+      instructorForm.setFieldValue("avatarUrl", result.url);
+      message.success("강사 사진이 업로드되었습니다.");
+    } catch {
+      message.error("강사 사진 업로드에 실패했습니다.");
+    } finally {
+      setAvatarUploading(false);
+    }
+  };
+
+  const handleUploadFile = async (file: RcFile): Promise<string> => {
+    const result = await api.uploadFile(file);
+    return result.url;
+  };
+
   const handleBasicInfoUpdate = async (values: {
     name: string;
     phone?: string;
     website?: string;
+    avatarUrl?: string;
   }) => {
     setNameLoading(true);
     try {
@@ -188,12 +249,14 @@ export default function ProfilePage() {
         name: values.name,
         phone: values.phone ?? null,
         website: values.website ?? null,
-      })) as { name: string; phone?: string | null; website?: string | null };
+        avatarUrl: values.avatarUrl ?? null,
+      })) as { name: string; phone?: string | null; website?: string | null; avatarUrl?: string | null };
       updateUser({
         ...user,
         name: result.name,
         phone: result.phone ?? null,
         website: result.website ?? null,
+        avatarUrl: result.avatarUrl ?? null,
       });
       if (user.role === "instructor") {
         try {
@@ -284,7 +347,26 @@ export default function ProfilePage() {
     setInstructorLoading(true);
     try {
       const payload = normalizeInstructorPayload(values);
-      await api.requestInstructor({ token: accessToken!, ...payload });
+      const specialties = values.specialtiesText
+        ? values.specialtiesText.split(",").map((s: string) => s.trim()).filter(Boolean)
+        : undefined;
+      const degrees = (values.degrees || []).filter((d: Degree) => d?.name || d?.school);
+      const careers = (values.careers || []).filter((c: Career) => c?.company || c?.role);
+      const publications = (values.publications || []).filter((p: Publication) => p?.title);
+      const certifications = (values.certifications || []).filter((c: Certification) => c?.name);
+
+      await api.requestInstructor({
+        token: accessToken!,
+        ...payload,
+        avatarUrl: toOptionalString(values.avatarUrl),
+        degrees: degrees.length ? degrees : undefined,
+        careers: careers.length ? careers : undefined,
+        publications: publications.length ? publications : undefined,
+        certifications: certifications.length ? certifications : undefined,
+        specialties: specialties?.length ? specialties : undefined,
+        affiliation: values.affiliation || undefined,
+        email: values.email || undefined,
+      });
       message.success(
         "강사 신청이 제출되었습니다. 관리자 승인을 기다려주세요.",
       );
@@ -318,7 +400,15 @@ export default function ProfilePage() {
         title: toOptionalString(values.title),
         email: toOptionalString(values.email),
         phone: toOptionalString(values.phone),
+        avatarUrl: toOptionalString(values.avatarUrl),
         affiliation: toOptionalString(values.affiliation),
+        tagline: toOptionalString(values.tagline),
+        awards: values.awards
+          ? values.awards
+              .split(",")
+              .map((v: string) => v.trim())
+              .filter(Boolean)
+          : [],
         bio: toOptionalString(values.bio),
         specialties,
         degrees: (values.degrees || []).filter((d: Degree) => d?.name || d?.school),
@@ -351,7 +441,10 @@ export default function ProfilePage() {
         title: latest?.title || undefined,
         email: latest?.email || user.email,
         phone: latest?.phone || undefined,
+        avatarUrl: latest?.avatarUrl || undefined,
         affiliation: latest?.affiliation || undefined,
+        tagline: latest?.tagline || undefined,
+        awards: latest?.awards?.join(", ") || undefined,
         bio: latest?.bio || undefined,
         specialties: latest?.specialties?.join(", ") || undefined,
         degrees: latest?.degrees || [],
@@ -372,7 +465,7 @@ export default function ProfilePage() {
     operator: { color: "orange", text: "운영자" },
     editor: { color: "blue", text: "편집자" },
     instructor: { color: "green", text: "강의자" },
-    viewer: { color: "default", text: "조회자" },
+    viewer: { color: "default", text: "사용자" },
     guest: { color: "gray", text: "게스트" },
   };
 
@@ -422,6 +515,14 @@ export default function ProfilePage() {
             : fallbackInstructor?.links
             ? JSON.stringify(fallbackInstructor.links, null, 2)
             : undefined,
+          degrees: profileResult?.degrees || [],
+          careers: profileResult?.careers || [],
+          publications: profileResult?.publications || [],
+          certifications: profileResult?.certifications || [],
+          specialtiesText: profileResult?.specialties?.join(", ") || undefined,
+          affiliation: profileResult?.affiliation || undefined,
+          email: profileResult?.email || user.email || undefined,
+          avatarUrl: user.avatarUrl || undefined,
         });
         instructorDetailForm.setFieldsValue({
           id: instructorEntityResult?.id,
@@ -430,7 +531,10 @@ export default function ProfilePage() {
           title: instructorEntityResult?.title || undefined,
           email: instructorEntityResult?.email || user.email,
           phone: instructorEntityResult?.phone || user.phone || undefined,
+          avatarUrl: instructorEntityResult?.avatarUrl || undefined,
           affiliation: instructorEntityResult?.affiliation || undefined,
+          tagline: instructorEntityResult?.tagline || undefined,
+          awards: instructorEntityResult?.awards?.join(", ") || undefined,
           bio: instructorEntityResult?.bio || undefined,
           specialties: instructorEntityResult?.specialties?.join(", ") || undefined,
           degrees: instructorEntityResult?.degrees || [],
@@ -440,12 +544,22 @@ export default function ProfilePage() {
         });
       } catch (error) {
         if (!cancelled) {
-          instructorForm.setFieldsValue({ name: user.name });
+          instructorForm.setFieldsValue({
+            name: user.name,
+            avatarUrl: user.avatarUrl || undefined,
+            degrees: [],
+            careers: [],
+            publications: [],
+            certifications: [],
+          });
           instructorDetailForm.setFieldsValue({
             userId: user.id,
             name: user.name,
             email: user.email,
             phone: user.phone || undefined,
+            avatarUrl: undefined,
+            tagline: undefined,
+            awards: undefined,
             degrees: [],
             careers: [],
             publications: [],
@@ -466,8 +580,9 @@ export default function ProfilePage() {
       name: user.name,
       phone: user.phone || undefined,
       website: user.website || undefined,
+      avatarUrl: user.avatarUrl || undefined,
     });
-  }, [nameForm, user.name, user.phone, user.website]);
+  }, [nameForm, user.name, user.phone, user.website, user.avatarUrl]);
 
   useEffect(() => {
     if (!accessToken || user?.role !== "instructor") return;
@@ -478,6 +593,7 @@ export default function ProfilePage() {
           1,
           50,
           "instructor_profile",
+          accessToken,
         )) as { items: { id: string; name: string }[] };
         if (cancelled) return;
         setTemplates(templateResult?.items || []);
@@ -554,11 +670,31 @@ export default function ProfilePage() {
   };
 
   return (
-    <div style={{ maxWidth: 800, margin: "0 auto" }}>
+    <div style={{ maxWidth: 1200, margin: "0 auto" }}>
       <Title level={3}>내 정보</Title>
+      <Tabs
+        activeKey={profileTab}
+        onChange={(key) => setProfileTab(key as "overview" | "instructor" | "security")}
+        style={{ marginBottom: 16 }}
+        items={[
+          { key: "overview", label: "기본정보" },
+          { key: "instructor", label: "강사정보" },
+          { key: "security", label: "보안/계정" },
+        ]}
+      />
 
       {/* User Info Card */}
-      <Card style={{ marginBottom: 24 }}>
+      {profileTab === "overview" && (
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "minmax(420px, 1fr) minmax(280px, 360px)",
+          gap: 16,
+          alignItems: "start",
+          marginBottom: 24,
+        }}
+      >
+      <Card>
         <Form
           form={nameForm}
           onFinish={handleBasicInfoUpdate}
@@ -567,15 +703,25 @@ export default function ProfilePage() {
             name: user.name,
             phone: user.phone || undefined,
             website: user.website || undefined,
+            avatarUrl: user.avatarUrl || undefined,
           }}
         >
-          <Form.Item
-            name="name"
-            label="이름"
-            rules={[{ required: true, message: "이름을 입력하세요" }]}
-          >
-            <Input prefix={<UserOutlined />} placeholder="이름" style={{ maxWidth: 320 }} />
-          </Form.Item>
+          <div style={{ display: "flex", gap: 24, marginBottom: 8 }}>
+            <AvatarUploadField
+              form={nameForm}
+              onUpload={(file) => handleUserAvatarUpload({ file })}
+              uploading={avatarUploading}
+            />
+            <div style={{ flex: 1 }}>
+              <Form.Item
+                name="name"
+                label="이름"
+                rules={[{ required: true, message: "이름을 입력하세요" }]}
+              >
+                <Input prefix={<UserOutlined />} placeholder="이름" style={{ maxWidth: 320 }} />
+              </Form.Item>
+            </div>
+          </div>
           <Form.Item label="이메일">
             <Input value={user.email} disabled style={{ maxWidth: 420 }} />
           </Form.Item>
@@ -607,46 +753,91 @@ export default function ProfilePage() {
           </Form.Item>
         </Form>
       </Card>
-
-      {/* Password Change */}
-      <Card title="비밀번호 변경" style={{ marginBottom: 24 }}>
-        <Text type="secondary">
-          비밀번호 변경은 확인 모달에서 진행합니다.
-        </Text>
-        <Divider />
-        <Button type="primary" onClick={() => setPasswordModalOpen(true)}>
-          비밀번호 변경
-        </Button>
+      <Card title="요약">
+        <Space style={{ marginBottom: 12 }}>
+          <Avatar size={56} src={user.avatarUrl || undefined} icon={<UserOutlined />} />
+          <div>
+            <div style={{ fontWeight: 600 }}>{user.name}</div>
+            <Text type="secondary">{user.email}</Text>
+          </div>
+        </Space>
+        <Descriptions column={1} labelStyle={{ width: 110 }}>
+          <Descriptions.Item label="이름">{user.name}</Descriptions.Item>
+          <Descriptions.Item label="이메일">{user.email}</Descriptions.Item>
+          <Descriptions.Item label="역할">
+            <Tag color={roleLabel[user.role].color}>{roleLabel[user.role].text}</Tag>
+          </Descriptions.Item>
+          <Descriptions.Item label="강사 상태">
+            {user.role === "instructor"
+              ? instructorProfile?.isApproved
+                ? "승인 완료"
+                : instructorProfile?.isPending
+                ? "승인 대기"
+                : "강사"
+              : "일반 사용자"}
+          </Descriptions.Item>
+          <Descriptions.Item label="가입일">
+            {new Date(user.createdAt).toLocaleDateString("ko-KR")}
+          </Descriptions.Item>
+        </Descriptions>
+        <Divider style={{ margin: "12px 0" }} />
+        <Space wrap>
+          <Button onClick={() => setProfileTab("instructor")}>강사정보 이동</Button>
+          <Button onClick={() => setProfileTab("security")}>보안 설정 이동</Button>
+        </Space>
       </Card>
+      </div>
+      )}
+
+      {/* Password Change - moved to 위험 설정 card below */}
 
       {/* Instructor Profile Section */}
-      {user.role !== "instructor" ? (
-        <Card title="강사 신청" style={{ marginBottom: 24 }}>
-          <Text type="secondary">
-            강사로 등록하면 더 많은 기능을 이용할 수 있습니다.
-          </Text>
-          {instructorProfile?.isPending && (
+      {profileTab === "instructor" && (user.role !== "instructor" ? (
+        instructorProfile?.isPending ? (
+          <Card title="강사 승인 대기" style={{ marginBottom: 24 }}>
+            <Text type="secondary">
+              강사 신청이 접수되었습니다. 관리자 승인 후 강사 기능을 사용할 수 있습니다.
+            </Text>
             <div style={{ marginTop: 12 }}>
               <Tag color="orange">승인 대기중</Tag>
             </div>
-          )}
+          </Card>
+        ) : (
+        <Card title="강사 신청" style={{ marginBottom: 24 }}>
+          <Text type="secondary">강사 등록 시 더 많은 기능을 이용할 수 있습니다.</Text>
           <Form
             form={instructorForm}
             onFinish={handleRequestInstructor}
             layout="vertical"
             style={{ marginTop: 16 }}
+            initialValues={{
+              degrees: [],
+              careers: [],
+              publications: [],
+              certifications: [],
+            }}
           >
-            <Form.Item
-              name="name"
-              label="이름"
-              initialValue={user.name}
-            >
-              <Input placeholder="강사 이름" />
-            </Form.Item>
+            <div style={{ display: "flex", gap: 24 }}>
+              <AvatarUploadField
+                form={instructorForm}
+                onUpload={(file) => handleInstructorRequestAvatarUpload({ file })}
+                uploading={avatarUploading}
+                serverUrl={SERVER_URL}
+              />
+              <div style={{ flex: 1 }}>
+                <Form.Item
+                  name="name"
+                  label="이름"
+                  initialValue={user.name}
+                >
+                  <Input placeholder="강사 이름" />
+                </Form.Item>
 
-            <Form.Item name="title" label="직함">
-              <Input placeholder="예: 교수, 강사, 전문가 등" />
-            </Form.Item>
+                <Form.Item name="title" label="직함">
+                  <Input placeholder="예: 교수, 강사, 전문가 등" />
+                </Form.Item>
+              </div>
+            </div>
 
             <Form.Item name="bio" label="자기소개">
               <Input.TextArea
@@ -670,7 +861,28 @@ export default function ProfilePage() {
               />
             </Form.Item>
 
-            <Form.Item>
+            <Divider />
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
+              <Form.Item name="affiliation" label="소속">
+                <Input placeholder="소속 기관" />
+              </Form.Item>
+              <Form.Item name="email" label="이메일">
+                <Input placeholder="연락용 이메일" />
+              </Form.Item>
+            </div>
+            <Form.Item name="specialtiesText" label="전문분야 (쉼표로 구분)">
+              <Input placeholder="예: 리더십, 커뮤니케이션, 조직문화" />
+            </Form.Item>
+
+            <InstructorCareerSection
+              form={instructorForm}
+              mode="simple"
+              defaultOpen={true}
+              titlePlacement="left"
+            />
+
+            <Form.Item style={{ marginTop: 16 }}>
               <Button
                 type="primary"
                 htmlType="submit"
@@ -681,49 +893,49 @@ export default function ProfilePage() {
             </Form.Item>
           </Form>
         </Card>
+        )
       ) : (
         <>
-          <Card title="강사 상세 정보 수정 (강사관리 연동)" style={{ marginBottom: 24 }}>
-            {instructorProfile?.isApproved ? (
-              <div style={{ marginBottom: 12 }}>
-                <Tag color="green">승인 완료</Tag>
-              </div>
-            ) : instructorProfile?.isPending ? (
-              <div style={{ marginBottom: 12 }}>
-                <Tag color="orange">승인 대기중</Tag>
-              </div>
-            ) : null}
+          <Card style={{ marginBottom: 24 }}>
             <Form
               form={instructorDetailForm}
               onFinish={handleUpdateInstructorDetail}
               layout="vertical"
               initialValues={{
+                avatarUrl: undefined,
                 degrees: [],
                 careers: [],
                 publications: [],
                 certifications: [],
               }}
             >
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
-                <Form.Item name="id" label="강사 ID">
-                  <Input disabled />
-                </Form.Item>
-                <Form.Item name="userId" label="사용자 ID">
-                  <Input disabled />
-                </Form.Item>
-              </div>
-
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
-                <Form.Item
-                  name="name"
-                  label="이름"
-                  rules={[{ required: true, message: "이름을 입력하세요" }]}
-                >
-                  <Input />
-                </Form.Item>
-                <Form.Item name="title" label="직함">
-                  <Input />
-                </Form.Item>
+              <div style={{ display: "flex", gap: 24 }}>
+                <AvatarUploadField
+                  form={instructorDetailForm}
+                  onUpload={(file) => handleInstructorAvatarUpload({ file })}
+                  uploading={avatarUploading}
+                  serverUrl={SERVER_URL}
+                />
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
+                    <Form.Item name="id" label="강사 ID">
+                      <Input disabled />
+                    </Form.Item>
+                    <Form.Item name="userId" label="사용자 ID">
+                      <Input disabled />
+                    </Form.Item>
+                  </div>
+                  <Form.Item
+                    name="name"
+                    label="이름"
+                    rules={[{ required: true, message: "이름을 입력하세요" }]}
+                  >
+                    <Input />
+                  </Form.Item>
+                  <Form.Item name="title" label="직함">
+                    <Input placeholder="예: 수석 컨설턴트" />
+                  </Form.Item>
+                </div>
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
@@ -732,7 +944,7 @@ export default function ProfilePage() {
                   label="이메일"
                   rules={[{ type: "email", message: "올바른 이메일 형식을 입력하세요" }]}
                 >
-                  <Input />
+                  <Input placeholder="예: instructor@company.com" />
                 </Form.Item>
                 <Form.Item name="phone" label="전화번호">
                   <Input />
@@ -742,143 +954,27 @@ export default function ProfilePage() {
               <Form.Item name="affiliation" label="소속">
                 <Input />
               </Form.Item>
+              <Form.Item name="tagline" label="한줄 소개">
+                <Input placeholder="예: 조직성과를 만드는 실무형 교육 전문가" />
+              </Form.Item>
               <Form.Item name="specialties" label="전문분야 (쉼표로 구분)">
                 <Input placeholder="예: 리더십, 커뮤니케이션, 조직문화" />
               </Form.Item>
+              <Form.Item name="awards" label="수상 (쉼표로 구분)">
+                <Input placeholder="예: 올해의 강사상, 교육혁신상" />
+              </Form.Item>
               <Form.Item name="bio" label="자기소개">
-                <Input.TextArea rows={3} />
+                <Input.TextArea rows={3} placeholder="강사 자기소개를 입력하세요 (선택)" />
               </Form.Item>
 
-              <Divider titlePlacement="start">학위</Divider>
-              <Form.List name="degrees">
-                {(fields, { add, remove }) => (
-                  <>
-                    {fields.map(({ key, name, ...restField }) => (
-                      <Space key={key} align="start" style={{ display: "flex", marginBottom: 8 }}>
-                        <Form.Item {...restField} name={[name, "name"]}>
-                          <Select
-                            placeholder="학위"
-                            style={{ width: 100 }}
-                            options={[
-                              { value: "학사", label: "학사" },
-                              { value: "석사", label: "석사" },
-                              { value: "박사", label: "박사" },
-                              { value: "기타", label: "기타" },
-                            ]}
-                          />
-                        </Form.Item>
-                        <Form.Item {...restField} name={[name, "school"]}>
-                          <Input placeholder="학교" />
-                        </Form.Item>
-                        <Form.Item {...restField} name={[name, "major"]}>
-                          <Input placeholder="전공" />
-                        </Form.Item>
-                        <Form.Item {...restField} name={[name, "year"]}>
-                          <Input placeholder="연도" />
-                        </Form.Item>
-                        <Form.Item {...restField} name={[name, "fileUrl"]}>
-                          <Input placeholder="첨부파일 URL(선택)" />
-                        </Form.Item>
-                        <MinusCircleOutlined onClick={() => remove(name)} />
-                      </Space>
-                    ))}
-                    <Button type="dashed" onClick={() => add()} block icon={<PlusOutlined />}>
-                      학위 추가
-                    </Button>
-                  </>
-                )}
-              </Form.List>
-
-              <Divider titlePlacement="start">주요경력</Divider>
-              <Form.List name="careers">
-                {(fields, { add, remove }) => (
-                  <>
-                    {fields.map(({ key, name, ...restField }) => (
-                      <Space key={key} align="start" style={{ display: "flex", marginBottom: 8 }}>
-                        <Form.Item {...restField} name={[name, "company"]}>
-                          <Input placeholder="회사/기관" />
-                        </Form.Item>
-                        <Form.Item {...restField} name={[name, "role"]}>
-                          <Input placeholder="직책/역할" />
-                        </Form.Item>
-                        <Form.Item {...restField} name={[name, "period"]}>
-                          <Input placeholder="기간" />
-                        </Form.Item>
-                        <Form.Item {...restField} name={[name, "description"]}>
-                          <Input placeholder="설명(선택)" />
-                        </Form.Item>
-                        <MinusCircleOutlined onClick={() => remove(name)} />
-                      </Space>
-                    ))}
-                    <Button type="dashed" onClick={() => add()} block icon={<PlusOutlined />}>
-                      경력 추가
-                    </Button>
-                  </>
-                )}
-              </Form.List>
-
-              <Divider titlePlacement="start">출판/논문</Divider>
-              <Form.List name="publications">
-                {(fields, { add, remove }) => (
-                  <>
-                    {fields.map(({ key, name, ...restField }) => (
-                      <Space key={key} align="start" style={{ display: "flex", marginBottom: 8 }}>
-                        <Form.Item {...restField} name={[name, "title"]}>
-                          <Input placeholder="제목" />
-                        </Form.Item>
-                        <Form.Item {...restField} name={[name, "type"]}>
-                          <Select
-                            placeholder="구분"
-                            style={{ width: 100 }}
-                            options={[
-                              { value: "출판", label: "출판" },
-                              { value: "논문", label: "논문" },
-                            ]}
-                          />
-                        </Form.Item>
-                        <Form.Item {...restField} name={[name, "year"]}>
-                          <Input placeholder="연도" />
-                        </Form.Item>
-                        <Form.Item {...restField} name={[name, "publisher"]}>
-                          <Input placeholder="출판사/학회" />
-                        </Form.Item>
-                        <MinusCircleOutlined onClick={() => remove(name)} />
-                      </Space>
-                    ))}
-                    <Button type="dashed" onClick={() => add()} block icon={<PlusOutlined />}>
-                      출판/논문 추가
-                    </Button>
-                  </>
-                )}
-              </Form.List>
-
-              <Divider titlePlacement="start">자격증</Divider>
-              <Form.List name="certifications">
-                {(fields, { add, remove }) => (
-                  <>
-                    {fields.map(({ key, name, ...restField }) => (
-                      <Space key={key} align="start" style={{ display: "flex", marginBottom: 8 }}>
-                        <Form.Item {...restField} name={[name, "name"]}>
-                          <Input placeholder="자격증명" />
-                        </Form.Item>
-                        <Form.Item {...restField} name={[name, "issuer"]}>
-                          <Input placeholder="발급기관" />
-                        </Form.Item>
-                        <Form.Item {...restField} name={[name, "date"]}>
-                          <Input placeholder="취득일" />
-                        </Form.Item>
-                        <Form.Item {...restField} name={[name, "fileUrl"]}>
-                          <Input placeholder="사본 URL(선택)" />
-                        </Form.Item>
-                        <MinusCircleOutlined onClick={() => remove(name)} />
-                      </Space>
-                    ))}
-                    <Button type="dashed" onClick={() => add()} block icon={<PlusOutlined />}>
-                      자격증 추가
-                    </Button>
-                  </>
-                )}
-              </Form.List>
+              <InstructorCareerSection
+                form={instructorDetailForm}
+                mode="upload"
+                onUploadFile={handleUploadFile}
+                defaultOpen={true}
+                titlePlacement="start"
+                compactAddButton={true}
+              />
 
               <Form.Item style={{ marginTop: 16 }}>
                 <Button type="primary" htmlType="submit" loading={instructorDetailLoading}>
@@ -910,19 +1006,53 @@ export default function ProfilePage() {
             </Form>
           </Card>
         </>
-      )}
+      ))}
 
-      {/* Account Delete */}
-      <Card title="계정 삭제" style={{ marginBottom: 24 }}>
-        <Text type="secondary">
-          계정을 삭제하면 더 이상 로그인할 수 없습니다. 이 작업은 취소할 수
-          없습니다.
-        </Text>
-        <Divider />
-        <Button danger onClick={() => setDeleteModalOpen(true)}>
-          계정 삭제
-        </Button>
+      {/* Security & Danger Settings */}
+      {profileTab === "security" && (
+      <Card
+        title={
+          <span style={{ color: token.colorTextSecondary, fontSize: 13 }}>
+            보안 설정
+          </span>
+        }
+        style={{ marginBottom: 24 }}
+        styles={{ body: { padding: 0 } }}
+      >
+        <SecuritySettingSection title="비밀번호 변경" toneColor={token.colorTextSecondary}>
+          <div style={{ marginTop: 12 }}>
+            <Text type="secondary">비밀번호 변경은 확인 모달에서 진행합니다.</Text>
+            <Divider style={{ margin: '12px 0' }} />
+            <Button onClick={() => setPasswordModalOpen(true)}>
+              비밀번호 변경
+            </Button>
+          </div>
+        </SecuritySettingSection>
+        <Divider style={{ margin: 0 }} />
+        <SecuritySettingSection title="소셜 계정 연동" toneColor={token.colorTextSecondary}>
+          <div style={{ marginTop: 12 }}>
+            <PlannedFeaturePanel
+              title="Google / NAVER 계정 연결"
+              description="현재는 소셜 계정 연결/해제를 지원하지 않습니다."
+              actions={["Google 연결", "NAVER 연결"]}
+            />
+          </div>
+        </SecuritySettingSection>
+        <Divider style={{ margin: 0 }} />
+        <SecuritySettingSection title="계정 삭제" toneColor={token.colorTextSecondary}>
+          <div style={{ marginTop: 12 }}>
+            <Text type="danger">
+              계정을 삭제하면 더 이상 로그인할 수 없습니다. 이 작업은 취소할 수
+              없습니다.
+            </Text>
+            <Divider style={{ margin: '12px 0' }} />
+            <Button danger onClick={() => setDeleteModalOpen(true)}>
+              계정 삭제 진행
+            </Button>
+          </div>
+        </SecuritySettingSection>
       </Card>
+      )}
 
       {/* Delete Confirmation Modal */}
       <Modal
@@ -1008,10 +1138,26 @@ export default function ProfilePage() {
           </span>
         }
         open={deleteModalOpen}
-        onCancel={() => setDeleteModalOpen(false)}
+        onCancel={() => {
+          setDeleteModalOpen(false);
+          setDeleteConfirmText('');
+          deleteForm.resetFields();
+        }}
         footer={null}
       >
-        <Text>계정을 삭제하려면 비밀번호를 입력하세요.</Text>
+        <Text>계정을 삭제하려면 아래 확인 절차를 진행하세요.</Text>
+        <div style={{ marginTop: 16 }}>
+          <Text type="secondary" style={{ fontSize: 13 }}>
+            확인을 위해 <Text strong code>"계정삭제"</Text>를 입력하세요.
+          </Text>
+          <Input
+            style={{ marginTop: 8 }}
+            placeholder="계정삭제"
+            value={deleteConfirmText}
+            onChange={(e) => setDeleteConfirmText(e.target.value)}
+            status={deleteConfirmText && deleteConfirmText !== '계정삭제' ? 'error' : undefined}
+          />
+        </div>
         <Form
           form={deleteForm}
           onFinish={handleDelete}
@@ -1019,13 +1165,18 @@ export default function ProfilePage() {
         >
           <Form.Item
             name="password"
+            label="비밀번호"
             rules={[{ required: true, message: "비밀번호를 입력하세요" }]}
           >
             <Input.Password prefix={<LockOutlined />} placeholder="비밀번호" />
           </Form.Item>
           <Form.Item style={{ marginBottom: 0, textAlign: "right" }}>
             <Button
-              onClick={() => setDeleteModalOpen(false)}
+              onClick={() => {
+                setDeleteModalOpen(false);
+                setDeleteConfirmText('');
+                deleteForm.resetFields();
+              }}
               style={{ marginRight: 8 }}
             >
               취소
@@ -1035,6 +1186,7 @@ export default function ProfilePage() {
               danger
               htmlType="submit"
               loading={deleteLoading}
+              disabled={deleteConfirmText !== '계정삭제'}
             >
               삭제
             </Button>

@@ -74,6 +74,107 @@
 
 ---
 
+## 공유 툴
+
+### `course.shareInvite`
+
+코스 공유 요청 생성.
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `token` | string | O | 액세스 토큰 |
+| `courseId` | string | O | 코스 ID |
+| `targetUserId` | string | O | 공유 대상 사용자 ID |
+
+### `course.shareRespond`
+
+코스 공유 요청 수락/거절 (수신자 본인).
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `token` | string | O | 액세스 토큰 |
+| `courseId` | string | O | 코스 ID |
+| `accept` | boolean | O | 수락 여부 |
+
+### `course.shareListReceived`
+
+내 코스 공유 요청/수락/거절 목록 조회.
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `token` | string | O | 액세스 토큰 |
+| `status` | enum | - | pending/accepted/rejected |
+
+### `course.shareRevoke`
+
+코스 공유 해제 (공유자/관리자 측).
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `token` | string | O | 액세스 토큰 |
+| `courseId` | string | O | 코스 ID |
+| `targetUserId` | string | O | 공유 해제 대상 사용자 ID |
+
+### `course.shareLeave`
+
+코스 공유 해제 (수신자 본인 측).
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `token` | string | O | 액세스 토큰 |
+| `courseId` | string | O | 코스 ID |
+
+### `lecture.grant.list`
+
+강의별 공유 권한 목록 조회 (소유자/관리자/재공유 권한 보유자).
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `lectureId` | string | O | 강의 ID |
+| `token` | string | O | 액세스 토큰 |
+
+### `lecture.grant.upsert`
+
+강의 공유 권한 생성/수정.
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `lectureId` | string | O | 강의 ID |
+| `userId` | string | O | 대상 사용자 ID |
+| `canMap` | boolean | - | 코스 매핑 권한 |
+| `canEdit` | boolean | - | 강의 수정 권한 |
+| `canReshare` | boolean | - | 재공유 권한 |
+| `token` | string | O | 액세스 토큰 |
+
+### `lecture.grant.delete`
+
+강의 공유 권한 해제 (소유자/관리자).
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `lectureId` | string | O | 강의 ID |
+| `userId` | string | O | 대상 사용자 ID |
+| `token` | string | O | 액세스 토큰 |
+
+### `lecture.grant.listMine`
+
+내가 공유받은 강의 권한 목록 조회.
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `token` | string | O | 액세스 토큰 |
+
+### `lecture.grant.leave`
+
+공유 수신자가 본인 강의 공유 해제.
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `lectureId` | string | O | 강의 ID |
+| `token` | string | O | 액세스 토큰 |
+
+---
+
 ## 강의 툴
 
 ### `lecture.upsert`
@@ -89,6 +190,17 @@
 | `hours` | number | - | 시간 (min: 0) |
 | `order` | integer | - | 순서 (min: 0) |
 | `token` | string | - | 인증 토큰 (등록자 추적용) |
+
+### `lecture.map`
+
+기존 강의를 코스에 연결.
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `lectureId` | string | O | 기존 강의 ID |
+| `courseId` | string | O | 연결할 코스 ID |
+| `order` | integer | - | 코스 내 표시 순서 (min: 0) |
+| `token` | string | O | 인증 토큰 |
 
 ### `lecture.get`
 

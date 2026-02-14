@@ -1,10 +1,13 @@
 import { LockOutlined, MailOutlined, UserOutlined } from "@ant-design/icons";
-import { Button, Card, Checkbox, Form, Input, message, Typography } from "antd";
+import { Button, Card, Checkbox, Divider, Form, Input, message, Typography } from "antd";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
+import PlannedFeaturePanel from "../components/PlannedFeaturePanel";
+import { parseMcpError } from "../utils/error";
+import AuthCardLayout from "../components/AuthCardLayout";
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
 interface RegisterForm {
   email: string;
@@ -28,14 +31,7 @@ export default function RegisterPage() {
   const { register } = useAuth();
   const navigate = useNavigate();
 
-  const parseError = (errorMessage: string): string => {
-    // Handle MCP wrapped errors
-    if (errorMessage.includes("MCP error")) {
-      const match = errorMessage.match(/MCP error -?\d+: (.+)/);
-      if (match) return match[1];
-    }
-    return errorMessage;
-  };
+  const parseError = (errorMessage: string): string => parseMcpError(errorMessage);
 
   const onFinish = async (values: RegisterForm) => {
     if (values.password !== values.confirmPassword) {
@@ -55,6 +51,15 @@ export default function RegisterPage() {
         values.password,
         values.name,
         values.isInstructorRequested,
+        values.isInstructorRequested
+          ? {
+              displayName: values.displayName,
+              title: values.title,
+              bio: values.bio,
+              phone: values.phone,
+              website: values.website,
+            }
+          : undefined,
       );
       message.success("회원가입이 완료되었습니다!");
       navigate("/courses");
@@ -67,22 +72,7 @@ export default function RegisterPage() {
   };
 
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        background: "#f0f2f5",
-      }}
-    >
-      <Card style={{ width: 400, boxShadow: "0 2px 8px rgba(0,0,0,0.1)" }}>
-        <div style={{ textAlign: "center", marginBottom: 24 }}>
-          <Title level={3} style={{ margin: 0 }}>
-            회원가입
-          </Title>
-          <Text type="secondary">Edux 계정을 생성하세요</Text>
-        </div>
+    <AuthCardLayout title="회원가입" subtitle="Edux 계정을 생성하세요">
 
         <Form
           form={form}
@@ -231,12 +221,32 @@ export default function RegisterPage() {
             </Button>
           </Form.Item>
 
+          <Divider style={{ margin: "8px 0 16px" }} />
+
+          <Form.Item style={{ marginBottom: 8 }}>
+            <PlannedFeaturePanel
+              title="소셜 회원가입/로그인"
+              description="현재는 이메일 기반 회원가입만 지원합니다."
+            />
+          </Form.Item>
+
+          <Form.Item>
+            <Button block size="large" disabled>
+              Google로 시작하기
+            </Button>
+          </Form.Item>
+
+          <Form.Item>
+            <Button block size="large" disabled>
+              NAVER로 시작하기
+            </Button>
+          </Form.Item>
+
           <div style={{ textAlign: "center" }}>
             <Text type="secondary">이미 계정이 있으신가요? </Text>
             <Link to="/login">로그인</Link>
           </div>
         </Form>
-      </Card>
-    </div>
+    </AuthCardLayout>
   );
 }
