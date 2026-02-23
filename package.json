@@ -5,9 +5,15 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/transport.ts",
+    "dev:up": "pwsh -File scripts/dev-up.ps1",
+    "dev:down": "pwsh -File scripts/dev-down.ps1",
+    "dev:status": "pwsh -File scripts/dev-status.ps1",
     "dev:stdio": "tsx src/mcp-server.ts",
     "dev:worker": "tsx watch src/workers/pdfWorker.ts",
     "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint \"src/**/*.ts\"",
+    "lint:fix": "eslint \"src/**/*.ts\" --fix",
     "start": "node dist/transport.js",
     "start:stdio": "node dist/mcp-server.js",
     "start:worker": "node dist/workers/pdfWorker.js",
@@ -29,14 +35,18 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
+    "@eslint/js": "^9.39.1",
     "@types/bcrypt": "^6.0.0",
     "@types/bcryptjs": "^2.4.6",
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^22.0.0",
+    "eslint": "^9.39.1",
+    "globals": "^16.5.0",
     "prisma": "^5.14.0",
     "tsx": "^4.19.0",
+    "typescript-eslint": "^8.46.4",
     "typescript": "^5.5.0",
     "vitest": "^2.0.0"
   },
@@ -54,6 +64,8 @@
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.0.2",
     "puppeteer": "^23.0.0",
+    "winston": "^3.18.3",
+    "winston-daily-rotate-file": "^5.0.0",
     "zod": "^3.23.0"
   }
 }

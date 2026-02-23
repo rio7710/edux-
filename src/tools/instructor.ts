@@ -167,7 +167,7 @@ export async function instructorUpsertHandler(args: {
       actor.role === "admin" || actor.role === "operator";
 
     // 강사는 반드시 User와 연결되어야 함
-    let resolvedUserId = isAdminOperator ? args.userId : actor.id;
+    const resolvedUserId = isAdminOperator ? args.userId : actor.id;
     if (isAdminOperator && !resolvedUserId) {
       return {
         content: [

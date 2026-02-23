@@ -18,6 +18,7 @@ import type { ColumnType } from 'antd/es/table';
 import {
   EditOutlined,
   EyeOutlined,
+  NotificationOutlined,
   ReloadOutlined,
   SettingOutlined,
 } from '@ant-design/icons';
@@ -395,7 +396,7 @@ export default function UsersPage() {
 
       <Alert
         type="info"
-        showIcon
+        showIcon icon={<NotificationOutlined />}
         message="회원 계정과 권한을 관리합니다."
         description="역할 변경/활성화는 관리자만 가능합니다."
         style={{ marginBottom: 16 }}

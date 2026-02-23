@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import crypto from 'crypto';
+import fs from 'fs/promises';
+import path from 'path';
 import { prisma } from '../services/prisma.js';
 import { requirePermission } from '../services/authorization.js';
 import { verifyToken } from '../services/jwt.js';
@@ -26,6 +28,50 @@ export const documentRevokeShareSchema = {
   token: z.string().describe('액세스 토큰'),
   id: z.string().describe('문서 ID'),
 };
+
+function resolvePdfDiskPath(pdfUrl?: string | null): string | null {
+  if (!pdfUrl || !pdfUrl.startsWith('/pdf/')) return null;
+  const fileName = path.basename(pdfUrl);
+  if (!fileName) return null;
+  return path.resolve(process.cwd(), 'public', 'pdf', fileName);
+}
+
+async function deletePdfFilesBestEffort(pdfUrls: Array<string | null | undefined>) {
+  const filePaths = [...new Set(pdfUrls.map((url) => resolvePdfDiskPath(url)).filter((v): v is string => !!v))];
+  await Promise.all(
+    filePaths.map(async (filePath) => {
+      try {
+        await fs.unlink(filePath);
+      } catch (error: any) {
+        if (error?.code !== 'ENOENT') {
+          // non-fatal cleanup error; keep delete operation successful
+          // eslint-disable-next-line no-console
+          console.warn('[document.delete] failed to remove pdf file:', filePath, error?.message || error);
+        }
+      }
+    }),
+  );
+}
+
+async function cleanupRenderJobsBestEffort(renderJobIds: string[], userId: string) {
+  const uniqueIds = [...new Set(renderJobIds.filter(Boolean))];
+  for (const renderJobId of uniqueIds) {
+    try {
+      const remained = await prisma.userDocument.count({
+        where: { renderJobId },
+      });
+      if (remained === 0) {
+        await prisma.renderJob.deleteMany({
+          where: { id: renderJobId, userId },
+        });
+      }
+    } catch (error: any) {
+      // non-fatal cleanup error; keep delete operation successful
+      // eslint-disable-next-line no-console
+      console.warn('[document.delete] failed to cleanup renderJob:', renderJobId, error?.message || error);
+    }
+  }
+}
 
 async function getActiveUserId(token: string) {
   const payload = verifyToken(token);
@@ -103,7 +149,7 @@ export async function documentDeleteHandler(args: { token: string; id: string })
 
     const doc = await prisma.userDocument.findFirst({
       where: { id: args.id, userId },
-      select: { id: true },
+      select: { id: true, targetType: true, targetId: true, renderJobId: true, label: true, pdfUrl: true },
     });
     if (!doc) {
       return {
@@ -112,10 +158,93 @@ export async function documentDeleteHandler(args: { token: string; id: string })
       };
     }
 
-    await prisma.userDocument.update({
-      where: { id: args.id },
-      data: { isActive: false },
+    const brochureSetting =
+      doc.targetType === 'brochure_package'
+        ? await prisma.appSetting.findUnique({
+            where: { key: `brochure.package.${doc.targetId}` },
+            select: { value: true },
+          })
+        : null;
+    const brochureSettingValue =
+      (brochureSetting?.value as { renderBatchToken?: string | null } | undefined) || undefined;
+    const renderBatchToken =
+      typeof brochureSettingValue?.renderBatchToken === 'string' && brochureSettingValue.renderBatchToken
+        ? brochureSettingValue.renderBatchToken
+        : null;
+
+    const isBrochureBatchArtifact =
+      (doc.targetType === 'course' || doc.targetType === 'instructor_profile') &&
+      (doc.label || '').includes('brochure-batch:');
+
+    const pdfUrlsToDelete: string[] = [];
+    const renderJobIdsToCleanup: string[] = [];
+    let packageDocsSnapshot: Array<{ id: string; renderJobId: string; pdfUrl: string }> = [];
+    let artifactDocsSnapshot: Array<{ id: string; renderJobId: string; pdfUrl: string }> = [];
+
+    if (doc.targetType === 'brochure_package') {
+      packageDocsSnapshot = await prisma.userDocument.findMany({
+        where: {
+          userId,
+          targetType: 'brochure_package',
+          targetId: doc.targetId,
+        },
+        select: { id: true, renderJobId: true, pdfUrl: true },
+      });
+      pdfUrlsToDelete.push(...packageDocsSnapshot.map((item) => item.pdfUrl));
+      renderJobIdsToCleanup.push(...packageDocsSnapshot.map((item) => item.renderJobId));
+    }
+    if (doc.targetType === 'brochure_package' && renderBatchToken) {
+      artifactDocsSnapshot = await prisma.userDocument.findMany({
+        where: {
+          userId,
+          OR: [{ targetType: 'course' }, { targetType: 'instructor_profile' }],
+          label: { contains: renderBatchToken },
+        },
+        select: { id: true, renderJobId: true, pdfUrl: true },
+      });
+      pdfUrlsToDelete.push(...artifactDocsSnapshot.map((item) => item.pdfUrl));
+      renderJobIdsToCleanup.push(...artifactDocsSnapshot.map((item) => item.renderJobId));
+    }
+
+    await prisma.$transaction(async (tx) => {
+      if (doc.targetType === 'brochure_package') {
+        const packageDocIds = packageDocsSnapshot.map((item) => item.id);
+        if (packageDocIds.length > 0) {
+          await tx.userDocument.deleteMany({
+            where: { id: { in: packageDocIds } },
+          });
+        }
+
+        await tx.appSetting.deleteMany({
+          where: { key: `brochure.package.${doc.targetId}` },
+        });
+
+        if (renderBatchToken) {
+          const artifactDocIds = artifactDocsSnapshot.map((item) => item.id);
+          if (artifactDocIds.length > 0) {
+            await tx.userDocument.deleteMany({
+              where: { id: { in: artifactDocIds } },
+            });
+          }
+        }
+      } else if (isBrochureBatchArtifact) {
+        pdfUrlsToDelete.push(doc.pdfUrl);
+        renderJobIdsToCleanup.push(doc.renderJobId);
+        await tx.userDocument.delete({
+          where: { id: doc.id },
+        });
+      } else {
+        await tx.userDocument.update({
+          where: { id: args.id },
+          data: { isActive: false },
+        });
+      }
     });
+
+    await deletePdfFilesBestEffort(pdfUrlsToDelete);
+    // NOTE: renderJob hard-delete is disabled here because legacy/inactive documents
+    // can still reference the same renderJobId and trigger FK failures.
+    // Document/PDF cleanup remains authoritative for user-visible deletion.
 
     return {
       content: [{ type: 'text' as const, text: JSON.stringify({ id: args.id }) }],

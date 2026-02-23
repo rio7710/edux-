@@ -197,6 +197,12 @@ import {
     dashboardBootstrapHandler,
     dashboardBootstrapSchema,
 } from "./tools/dashboard.js";
+import {
+    brochureCreateSchema,
+    brochureCreateHandler,
+    brochureGetSchema,
+    brochureGetHandler,
+} from "./tools/brochure.js";
 
 // MCP 서버 인스턴스 생성
 const server = new McpServer({
@@ -679,6 +685,18 @@ server.tool(
   "문서 공유 토큰 해제",
   documentRevokeShareSchema,
   async (args) => documentRevokeShareHandler(args),
+);
+server.tool(
+  "brochure.create",
+  "브로셔 패키지 저장",
+  brochureCreateSchema,
+  async (args) => brochureCreateHandler(args),
+);
+server.tool(
+  "brochure.get",
+  "브로셔 패키지 조회",
+  brochureGetSchema,
+  async (args) => brochureGetHandler(args),
 );
 server.tool(
   "message.list",

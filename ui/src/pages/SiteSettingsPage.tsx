@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Card, Divider, Result, Select, Space, Switch, Table, Tag, Input, Tabs, InputNumber, Upload, message, Collapse } from 'antd';
-import { ArrowUpOutlined, ArrowDownOutlined, SaveOutlined, ReloadOutlined } from '@ant-design/icons';
+import { ArrowUpOutlined, ArrowDownOutlined, SaveOutlined, ReloadOutlined, NotificationOutlined } from '@ant-design/icons';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../api/mcpClient';
 import { NO_COLUMN_KEY, normalizeConfig } from '../utils/tableConfig';
@@ -901,7 +901,7 @@ export default function SiteSettingsPage() {
               <>
                 <Alert
                   type="info"
-                  showIcon
+                  showIcon icon={<NotificationOutlined />}
                   message="기본관리"
                   description="사이트 공통 설정을 이 탭에서 관리합니다."
                   style={{ marginBottom: 16 }}
@@ -968,7 +968,8 @@ export default function SiteSettingsPage() {
                         accept="image/*,.ico,.svg"
                         beforeUpload={async (file: RcFile) => {
                           try {
-                            const result = await api.uploadFile(file);
+                            if (!accessToken) throw new Error('로그인이 필요합니다.');
+                            const result = await api.uploadFile(file, accessToken);
                             setFaviconUrl(result.url);
                             setFaviconDirty(true);
                             message.success('파비콘 업로드 완료');
@@ -1032,7 +1033,8 @@ export default function SiteSettingsPage() {
                         accept="image/*,.svg"
                         beforeUpload={async (file: RcFile) => {
                           try {
-                            const result = await api.uploadFile(file);
+                            if (!accessToken) throw new Error('로그인이 필요합니다.');
+                            const result = await api.uploadFile(file, accessToken);
                             setLogoUrl(result.url);
                             setLogoDirty(true);
                             message.success('로고 업로드 완료');
@@ -1148,7 +1150,7 @@ export default function SiteSettingsPage() {
               <>
                 <Alert
                   type="info"
-                  showIcon
+                  showIcon icon={<NotificationOutlined />}
                   message="목차관리"
                   description="테이블 컬럼 표시/순서를 공통 설정으로 관리합니다."
                   style={{ marginBottom: 16 }}
@@ -1226,7 +1228,7 @@ export default function SiteSettingsPage() {
               <>
                 <Alert
                   type="info"
-                  showIcon
+                  showIcon icon={<NotificationOutlined />}
                   message="게시판관리"
                   description="공지/업데이트/가이드 게시물을 운영합니다."
                   style={{ marginBottom: 16 }}
@@ -1242,7 +1244,7 @@ export default function SiteSettingsPage() {
               <>
                 <Alert
                   type="info"
-                  showIcon
+                  showIcon icon={<NotificationOutlined />}
                   message="권한관리"
                   description="기능 정의와 메뉴/역할/기능 권한을 저장하고 프론트 접근 제어에 즉시 반영합니다."
                   style={{ marginBottom: 16 }}
@@ -1276,7 +1278,7 @@ export default function SiteSettingsPage() {
                   <div style={{ fontWeight: 600, marginBottom: 12 }}>메뉴/권한 통합 관리</div>
                   <Alert
                     type="warning"
-                    showIcon
+                    showIcon icon={<NotificationOutlined />}
                     message="상위 메뉴 OFF 시 하위 기능은 기본 차단"
                     description="메뉴가 비활성화되면 해당 도메인의 기능 권한이 허용이어도 접근이 막힙니다."
                     style={{ marginBottom: 12 }}

@@ -384,7 +384,11 @@ model RenderJob {
   targetId     String
   status       JobStatus @default(pending)
   pdfUrl       String?
+  errorCode    String?   // TEMPLATE_NOT_FOUND | TEMPLATE_RENDER_ERROR | CHROME_LAUNCH_ERROR | PDF_TIMEOUT | DATA_FETCH_ERROR | UNKNOWN
   errorMessage String?
+  retryCount   Int       @default(0)
+  processingAt DateTime? // pending→processing 전환 시각
+  lastTriedAt  DateTime? // 마지막 시도 시각
   createdAt    DateTime  @default(now())
 
   User     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -392,6 +396,7 @@ model RenderJob {
   UserDocuments UserDocument[]
 
   @@index([userId])
+  @@index([status])
   @@index([targetType, targetId])
 }
 

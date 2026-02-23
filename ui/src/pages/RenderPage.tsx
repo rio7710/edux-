@@ -6,12 +6,12 @@ import {
   Select,
   message,
   Card,
-  Space,
   Alert,
   Result,
 } from 'antd';
-import { FilePdfOutlined, DownloadOutlined } from '@ant-design/icons';
+import { FilePdfOutlined, NotificationOutlined } from '@ant-design/icons';
 import { useMutation } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../api/mcpClient';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -23,8 +23,8 @@ interface RenderResult {
 export default function RenderPage() {
   const [form] = Form.useForm();
   const [renderResult, setRenderResult] = useState<RenderResult | null>(null);
-  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const { accessToken } = useAuth();
+  const navigate = useNavigate();
 
   const renderCourseMutation = useMutation({
     mutationFn: ({ templateId, courseId, label }: { templateId: string; courseId: string; label?: string }) =>
@@ -76,7 +76,6 @@ export default function RenderPage() {
       return;
     }
     setRenderResult(null);
-    setPdfUrl(null);
 
     if (values.type === 'course') {
       renderCourseMutation.mutate({
@@ -106,9 +105,9 @@ export default function RenderPage() {
       <h2>PDF 생성</h2>
       <Alert
         type="info"
-        showIcon
+        showIcon icon={<NotificationOutlined />}
         message="템플릿과 대상 ID를 지정해 PDF 렌더 작업을 등록합니다."
-        description="렌더는 백그라운드로 처리되며, 완료된 파일은 /pdf 경로에서 확인합니다."
+        description="렌더는 백그라운드로 처리되며, 완료된 파일은 내 문서함에서 확인합니다."
         style={{ marginBottom: 16 }}
       />
 
@@ -206,37 +205,17 @@ export default function RenderPage() {
                 description={
                   <>
                     <p>워커가 작업을 처리하면 PDF가 생성됩니다.</p>
-                    <p>생성된 PDF는 <code>/pdf/</code> 경로에서 확인할 수 있습니다.</p>
+                    <p>생성된 PDF는 내 문서함에서 확인할 수 있습니다.</p>
                   </>
                 }
               />,
+              <Button key="go-docs" type="primary" onClick={() => navigate('/documents')}>
+                내 문서함 이동
+              </Button>,
             ]}
           />
         </Card>
       )}
-
-      <Card style={{ maxWidth: 600, marginTop: 24 }}>
-        <h3>PDF 직접 다운로드</h3>
-        <Space.Compact style={{ width: '100%' }}>
-          <Input
-            placeholder="PDF 파일명 (예: course-xxx.pdf)"
-            value={pdfUrl || ''}
-            onChange={(e) => setPdfUrl(e.target.value)}
-          />
-          <Button
-            type="primary"
-            icon={<DownloadOutlined />}
-            onClick={() => {
-              if (pdfUrl) {
-                window.open(`/pdf/${pdfUrl}`, '_blank');
-              }
-            }}
-            disabled={!pdfUrl}
-          >
-            다운로드
-          </Button>
-        </Space.Compact>
-      </Card>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { prisma } from '../services/prisma.js';
-import { renderQueue, RENDER_QUEUE_NAME } from '../services/queue.js'; // Import the queue
+import { renderQueue } from '../services/queue.js'; // Import the queue
 import { requirePermission } from '../services/authorization.js';
 import { verifyToken } from '../services/jwt.js';
 import { errorResult } from '../services/toolResponse.js';
@@ -23,7 +23,7 @@ export const renderSchedulePdfSchema = {
 export const renderInstructorProfilePdfSchema = {
   token: z.string().describe('액세스 토큰'),
   templateId: z.string().describe('템플릿 ID'),
-  profileId: z.string().describe('강사 프로필 ID'),
+  profileId: z.string().describe('강사 프로필 ID 또는 강사 ID'),
   label: z.string().optional().describe('문서 라벨'),
 };
 
@@ -112,7 +112,7 @@ export async function renderCoursePdfHandler(args: {
 
     // 3. Add job to BullMQ queue
     await renderQueue.add(
-      'renderCoursePdf', // Job name
+      'renderCoursePdf',
       {
         renderJobId: renderJob.id,
         userId: user.id,
@@ -123,12 +123,9 @@ export async function renderCoursePdfHandler(args: {
         label: args.label,
       },
       {
-        jobId: renderJob.id, // Use renderJob ID as BullMQ job ID for easy tracking
-        // attempts: 3, // Retry failed jobs
-        // backoff: {
-        //   type: 'exponential',
-        //   delay: 1000,
-        // },
+        jobId: renderJob.id,
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 10000 },
       }
     );
 
@@ -224,7 +221,7 @@ export async function renderSchedulePdfHandler(args: {
 
     // 3. Add job to BullMQ queue
     await renderQueue.add(
-      'renderSchedulePdf', // Job name
+      'renderSchedulePdf',
       {
         renderJobId: renderJob.id,
         userId: user.id,
@@ -235,12 +232,9 @@ export async function renderSchedulePdfHandler(args: {
         label: args.label,
       },
       {
-        jobId: renderJob.id, // Use renderJob ID as BullMQ job ID for easy tracking
-        // attempts: 3, // Retry failed jobs
-        // backoff: {
-        //   type: 'exponential',
-        //   delay: 1000,
-        // },
+        jobId: renderJob.id,
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 10000 },
       }
     );
 
@@ -287,10 +281,28 @@ export async function renderInstructorProfilePdfHandler(args: {
       };
     }
 
-    const profile = await prisma.instructorProfile.findUnique({
+    let profile = await prisma.instructorProfile.findUnique({
       where: { id: args.profileId },
       select: { id: true, userId: true },
     });
+    if (!profile) {
+      const instructor = await prisma.instructor.findUnique({
+        where: { id: args.profileId, deletedAt: null },
+        select: { userId: true },
+      });
+      if (instructor?.userId) {
+        profile = await prisma.instructorProfile.findUnique({
+          where: { userId: instructor.userId },
+          select: { id: true, userId: true },
+        });
+      }
+    }
+    if (!profile) {
+      profile = await prisma.instructorProfile.findUnique({
+        where: { userId: args.profileId },
+        select: { id: true, userId: true },
+      });
+    }
     if (!profile) {
       return {
         content: [{ type: 'text' as const, text: `Instructor profile not found: ${args.profileId}` }],
@@ -311,7 +323,7 @@ export async function renderInstructorProfilePdfHandler(args: {
         userId: user.id,
         templateId: args.templateId,
         targetType: 'instructor_profile',
-        targetId: args.profileId,
+        targetId: profile.id,
         status: 'pending',
       },
     });
@@ -323,12 +335,14 @@ export async function renderInstructorProfilePdfHandler(args: {
         userId: user.id,
         templateId: args.templateId,
         targetType: 'instructor_profile',
-        targetId: args.profileId,
-        profileId: args.profileId,
+        targetId: profile.id,
+        profileId: profile.id,
         label: args.label,
       },
       {
         jobId: renderJob.id,
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 10000 },
       }
     );
 

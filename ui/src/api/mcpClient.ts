@@ -34,7 +34,7 @@ export type McpRequestStats = {
 };
 
 const MCP_CONNECT_ERROR_MESSAGE =
-  "MCP 서버에 연결할 수 없습니다. 백엔드 서버(http://localhost:7777)를 확인하세요.";
+  "MCP 서버에 연결할 수 없습니다. 백엔드(7777)와 네트워크 접근 가능 여부를 확인하세요.";
 const MCP_CONNECT_TIMEOUT_MS = Number(
   import.meta.env.VITE_MCP_CONNECT_TIMEOUT_MS ?? 20000,
 );
@@ -81,7 +81,7 @@ class McpClient {
 
   constructor() {
     const envBase = import.meta.env.VITE_MCP_BASE_URL as string | undefined;
-    this.baseUrl = envBase ?? (import.meta.env.DEV ? "http://localhost:7777" : "");
+    this.baseUrl = envBase ?? "";
     this.activeBaseUrl = this.baseUrl;
   }
 
@@ -282,7 +282,7 @@ class McpClient {
         await connectOnce(this.baseUrl);
       } catch (err) {
         // Try the alternate route once (direct URL <-> Vite proxy path).
-        const fallback = this.baseUrl ? "" : "http://localhost:7777";
+        const fallback = this.baseUrl ? "" : window.location.origin;
         try {
           await connectOnce(fallback);
         } catch {
@@ -748,11 +748,49 @@ export const api = {
     website?: string;
   }) => mcpClient.callTool("user.register", data),
 
-  userLogin: (data: { email: string; password: string }) =>
-    mcpClient.callTool("user.login", data),
+  userLogin: async (data: { email: string; password: string }) => {
+    const res = await fetch("/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(data),
+    });
+    const payload = (await res.json().catch(() => ({}))) as {
+      user?: unknown;
+      accessToken?: string;
+      error?: string;
+    };
+    if (!res.ok || !payload.user || !payload.accessToken) {
+      throw new Error(payload.error || "로그인 실패");
+    }
+    return payload;
+  },
 
-  userRefreshToken: (data: { refreshToken: string; accessToken?: string }) =>
-    mcpClient.callTool("user.refreshToken", data),
+  userRefreshToken: async (data: { accessToken?: string }) => {
+    const res = await fetch("/auth/refresh", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(data),
+    });
+    const payload = (await res.json().catch(() => ({}))) as {
+      accessToken?: string;
+      minutes?: number;
+      totalMinutes?: number;
+      error?: string;
+    };
+    if (!res.ok || !payload.accessToken || typeof payload.minutes !== "number") {
+      throw new Error(payload.error || "세션 연장 실패");
+    }
+    return payload;
+  },
+
+  userLogout: async () => {
+    await fetch("/auth/logout", {
+      method: "POST",
+      credentials: "include",
+    });
+  },
 
   userIssueTestToken: (data: { token: string; minutes: number }) =>
     mcpClient.callTool("user.issueTestToken", data),
@@ -876,6 +914,29 @@ export const api = {
   documentRevokeShare: (data: { token: string; id: string }) =>
     mcpClient.callTool("document.revokeShare", data),
 
+  brochureCreate: (data: {
+    token: string;
+    title: string;
+    summary?: string;
+    brochureTemplateId: string;
+    courseTemplateId?: string;
+    instructorTemplateId?: string;
+    includeToc?: boolean;
+    includeCourse?: boolean;
+    includeInstructor?: boolean;
+    contentOrder?: "course-first" | "instructor-first";
+    outputMode?: "web" | "pdf" | "both";
+    sourceMode?: "my_documents" | "edux";
+    renderBatchToken?: string;
+    sourceCourseDocIds?: string[];
+    sourceInstructorDocIds?: string[];
+    sourceCourseIds?: string[];
+    sourceInstructorIds?: string[];
+  }) => mcpClient.callTool("brochure.create", data),
+
+  brochureGet: (data: { token: string; id: string }) =>
+    mcpClient.callTool("brochure.get", data),
+
   // Messages
   messageList: (data: {
     token: string;
@@ -981,11 +1042,14 @@ export const api = {
     mcpClient.callTool("authz.check", data),
 
   // File Upload (REST, not MCP)
-  uploadFile: async (file: File): Promise<{ url: string }> => {
+  uploadFile: async (file: File, accessToken: string): Promise<{ url: string }> => {
     const formData = new FormData();
     formData.append('file', file);
     const res = await fetch('/api/upload', {
       method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
       body: formData,
     });
     if (!res.ok) {

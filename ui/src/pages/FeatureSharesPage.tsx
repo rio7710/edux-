@@ -23,6 +23,7 @@ import {
   CheckOutlined,
   CloseCircleOutlined,
   DeleteOutlined,
+  NotificationOutlined,
   StopOutlined,
 } from '@ant-design/icons';
 import { api } from '../api/mcpClient';
@@ -741,7 +742,7 @@ export default function FeatureSharesPage() {
   );
 
   if (!accessToken) {
-    return <Alert type="warning" title="로그인 후 이용할 수 있습니다." showIcon />;
+    return <Alert type="warning" title="로그인 후 이용할 수 있습니다." showIcon icon={<NotificationOutlined />} />;
   }
 
   return (
@@ -752,7 +753,7 @@ export default function FeatureSharesPage() {
 
       <Alert
         type="info"
-        showIcon
+        showIcon icon={<NotificationOutlined />}
         title="MCP 메시지함 + 공유 이력을 한 곳에서 확인합니다."
         description="메시지함은 message.* MCP 툴 기반이며, 코스/강의 공유 액션과 강사 승인 알림이 자동 적재됩니다."
       />

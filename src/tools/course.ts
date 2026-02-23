@@ -629,7 +629,7 @@ export async function courseGetHandler(args: { id: string; token: string }) {
       enrichedCourse.Schedules = await resolveCreatorNames(
         enrichedCourse.Schedules,
       );
-      for (let schedule of enrichedCourse.Schedules) {
+      for (const schedule of enrichedCourse.Schedules) {
         if (schedule.Instructor) {
           const [enrichedInstructor] = await resolveCreatorNames([
             schedule.Instructor,

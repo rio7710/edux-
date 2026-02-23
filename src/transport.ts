@@ -3,6 +3,8 @@ import cors from 'cors';
 import multer from 'multer';
 import path from 'path';
 import crypto from 'crypto';
+import fs from 'fs';
+import bcrypt from 'bcrypt';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 
@@ -205,18 +207,77 @@ import {
   dashboardBootstrapSchema,
   dashboardBootstrapHandler,
 } from './tools/dashboard.js';
+import {
+  brochureCreateSchema,
+  brochureCreateHandler,
+  brochureGetSchema,
+  brochureGetHandler,
+} from './tools/brochure.js';
 import { prisma } from './services/prisma.js';
-import { signAccessToken, signRefreshToken, type JwtPayload } from './services/jwt.js';
+import {
+  signAccessToken,
+  signAccessTokenWithExpiry,
+  signRefreshToken,
+  type JwtPayload,
+  verifyRefreshToken,
+  verifyToken,
+  decodeTokenWithExp,
+} from './services/jwt.js';
+import { logger } from './services/logger.js';
 
 const PORT = process.env.PORT || 7777;
 const app = express();
-type OAuthProvider = 'google' | 'naver';
-const oauthStates = new Map<string, { provider: OAuthProvider; expiresAt: number }>();
-const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
+let httpServer: ReturnType<typeof app.listen> | null = null;
+let shutdownStarted = false;
+const crashFallbackPath = path.resolve(process.cwd(), 'logs', 'backend-crash-fallback.log');
 
-// Enable CORS for all origins
-app.use(cors());
+const writeCrashFallback = (event: string, payload: Record<string, unknown>) => {
+  try {
+    fs.mkdirSync(path.dirname(crashFallbackPath), { recursive: true });
+    fs.appendFileSync(
+      crashFallbackPath,
+      `${JSON.stringify({ ts: new Date().toISOString(), event, ...payload })}\n`,
+      'utf8',
+    );
+  } catch {
+    // ignore fallback logging errors
+  }
+};
+type OAuthProvider = 'google' | 'naver';
+const oauthStates = new Map<
+  string,
+  {
+    provider: OAuthProvider;
+    expiresAt: number;
+    codeVerifier?: string;
+    browserSessionId: string;
+  }
+>();
+const oauthAuthCodes = new Map<string, {
+  user: ReturnType<typeof sanitizeUser>;
+  accessToken: string;
+  refreshToken: string;
+  browserSessionId: string;
+  expiresAt: number;
+}>();
+const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
+const OAUTH_AUTH_CODE_TTL_MS = 60 * 1000;
+const OAUTH_BROWSER_SESSION_COOKIE = 'edux_oauth_sid';
+const REFRESH_TOKEN_COOKIE = 'edux_refresh_token';
+
+// Enable CORS and credentials for auth cookie flows
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json()); // For parsing application/json
+app.use((req, res, next) => {
+  const incomingRequestId = req.header("x-request-id");
+  const requestId =
+    incomingRequestId && incomingRequestId.trim()
+      ? incomingRequestId.trim()
+      : crypto.randomUUID();
+  req.requestId = requestId;
+  res.setHeader("x-request-id", requestId);
+  next();
+});
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -228,6 +289,15 @@ const cleanupOAuthStates = () => {
   for (const [key, value] of oauthStates.entries()) {
     if (value.expiresAt <= now) {
       oauthStates.delete(key);
+    }
+  }
+};
+
+const cleanupOAuthAuthCodes = () => {
+  const now = Date.now();
+  for (const [key, value] of oauthAuthCodes.entries()) {
+    if (value.expiresAt <= now) {
+      oauthAuthCodes.delete(key);
     }
   }
 };
@@ -246,6 +316,42 @@ const getFrontendBaseUrl = (req: express.Request): string => {
   if (origin) return origin.replace(/\/$/, '');
   return 'http://localhost:5173';
 };
+
+const getRefreshCookieOptions = (): express.CookieOptions => ({
+  httpOnly: true,
+  sameSite: 'lax',
+  secure: process.env.NODE_ENV === 'production',
+  path: '/',
+  maxAge: 7 * 24 * 60 * 60 * 1000,
+});
+
+const setRefreshTokenCookie = (res: express.Response, refreshToken: string) => {
+  res.cookie(REFRESH_TOKEN_COOKIE, refreshToken, getRefreshCookieOptions());
+};
+
+const clearRefreshTokenCookie = (res: express.Response) => {
+  res.clearCookie(REFRESH_TOKEN_COOKIE, { path: '/' });
+};
+
+const parseCookieValue = (req: express.Request, key: string): string | null => {
+  const raw = req.header('cookie');
+  if (!raw) return null;
+  const cookies = raw.split(';');
+  for (const cookie of cookies) {
+    const [name, ...valueParts] = cookie.trim().split('=');
+    if (name === key) {
+      return decodeURIComponent(valueParts.join('='));
+    }
+  }
+  return null;
+};
+
+const toBase64Url = (input: Buffer): string =>
+  input.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+
+const generatePkceCodeVerifier = (): string => toBase64Url(crypto.randomBytes(64));
+const generatePkceCodeChallenge = (codeVerifier: string): string =>
+  toBase64Url(crypto.createHash('sha256').update(codeVerifier).digest());
 
 const redirectWithSocialError = (req: express.Request, res: express.Response, errorMessage: string) => {
   const target = new URL('/login', getFrontendBaseUrl(req));
@@ -358,6 +464,163 @@ const upsertSocialUser = async (args: {
   });
 };
 
+app.post('/auth/login', async (req, res) => {
+  try {
+    const email = typeof req.body?.email === 'string' ? req.body.email.trim() : '';
+    const password = typeof req.body?.password === 'string' ? req.body.password : '';
+    if (!email || !password) {
+      logger.warn("auth.login.bad_request", {
+        requestId: req.requestId,
+        hasEmail: !!email,
+        hasPassword: !!password,
+      });
+      res.status(400).json({ error: '이메일과 비밀번호가 필요합니다.' });
+      return;
+    }
+
+    const user = await prisma.user.findFirst({
+      where: { email, isActive: true, deletedAt: null },
+    });
+    if (!user || !user.hashedPassword) {
+      logger.warn("auth.login.invalid_user", {
+        requestId: req.requestId,
+        email,
+      });
+      res.status(401).json({ error: '이메일 또는 비밀번호가 일치하지 않습니다.' });
+      return;
+    }
+
+    const isValidPassword = await bcrypt.compare(password, user.hashedPassword);
+    if (!isValidPassword) {
+      logger.warn("auth.login.invalid_password", {
+        requestId: req.requestId,
+        email,
+      });
+      res.status(401).json({ error: '이메일 또는 비밀번호가 일치하지 않습니다.' });
+      return;
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: user.id },
+      data: { lastLoginAt: new Date() },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        phone: true,
+        website: true,
+        avatarUrl: true,
+        role: true,
+        isActive: true,
+        createdAt: true,
+        lastLoginAt: true,
+      },
+    });
+    const { accessToken, refreshToken } = issueAuthPayload(updatedUser);
+    setRefreshTokenCookie(res, refreshToken);
+    res.json({
+      user: sanitizeUser(updatedUser),
+      accessToken,
+    });
+    logger.info("auth.login.success", {
+      requestId: req.requestId,
+      userId: updatedUser.id,
+      email: updatedUser.email,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '로그인 처리 실패';
+    logger.error("auth.login.failed", {
+      requestId: req.requestId,
+      error,
+    });
+    res.status(500).json({ error: message });
+  }
+});
+
+app.post('/auth/refresh', async (req, res) => {
+  try {
+    const refreshToken = parseCookieValue(req, REFRESH_TOKEN_COOKIE);
+    if (!refreshToken) {
+      logger.warn("auth.refresh.missing_cookie", {
+        requestId: req.requestId,
+      });
+      res.status(401).json({ error: '리프레시 토큰이 없습니다.' });
+      return;
+    }
+
+    const payload = verifyRefreshToken(refreshToken) as JwtPayload;
+    const user = await prisma.user.findFirst({
+      where: { id: payload.userId, isActive: true, deletedAt: null },
+      select: { id: true, email: true, role: true },
+    });
+    if (!user) {
+      clearRefreshTokenCookie(res);
+      logger.warn("auth.refresh.user_not_found", {
+        requestId: req.requestId,
+        userId: payload.userId,
+      });
+      res.status(401).json({ error: '사용자를 찾을 수 없습니다.' });
+      return;
+    }
+
+    const setting = await prisma.appSetting.findUnique({
+      where: { key: 'session_extend_minutes' },
+    });
+    const minutes =
+      typeof setting?.value === 'number'
+        ? setting.value
+        : Number((setting?.value as Record<string, unknown> | null)?.minutes) || 10;
+
+    const currentAccessToken =
+      typeof req.body?.accessToken === 'string' ? req.body.accessToken : undefined;
+    let totalMinutes = minutes;
+    if (currentAccessToken) {
+      const decoded = decodeTokenWithExp(currentAccessToken);
+      if (decoded?.exp) {
+        const remainingSec = Math.max(0, decoded.exp * 1000 - Date.now()) / 1000;
+        const remainingMin = Math.ceil(remainingSec / 60);
+        totalMinutes = Math.max(1, remainingMin + minutes);
+      }
+    }
+
+    const cleanPayload: JwtPayload = {
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+    };
+    const nextAccessToken = signAccessTokenWithExpiry(cleanPayload, `${totalMinutes}m`);
+    const nextRefreshToken = signRefreshToken(cleanPayload);
+    setRefreshTokenCookie(res, nextRefreshToken);
+
+    res.json({
+      accessToken: nextAccessToken,
+      minutes,
+      totalMinutes,
+    });
+    logger.info("auth.refresh.success", {
+      requestId: req.requestId,
+      userId: user.id,
+      minutes,
+      totalMinutes,
+    });
+  } catch (error) {
+    clearRefreshTokenCookie(res);
+    logger.error("auth.refresh.failed", {
+      requestId: req.requestId,
+      error,
+    });
+    res.status(401).json({ error: '세션 연장에 실패했습니다.' });
+  }
+});
+
+app.post('/auth/logout', (req, res) => {
+  clearRefreshTokenCookie(res);
+  logger.info("auth.logout", {
+    requestId: req.requestId,
+  });
+  res.status(204).end();
+});
+
 app.get('/auth/:provider/start', async (req, res) => {
   try {
     const provider = req.params.provider as OAuthProvider;
@@ -368,7 +631,17 @@ app.get('/auth/:provider/start', async (req, res) => {
 
     cleanupOAuthStates();
     const state = crypto.randomBytes(24).toString('hex');
-    oauthStates.set(state, { provider, expiresAt: Date.now() + OAUTH_STATE_TTL_MS });
+    const browserSessionId = parseCookieValue(req, OAUTH_BROWSER_SESSION_COOKIE) || crypto.randomUUID();
+    const stateData: {
+      provider: OAuthProvider;
+      expiresAt: number;
+      codeVerifier?: string;
+      browserSessionId: string;
+    } = {
+      provider,
+      expiresAt: Date.now() + OAUTH_STATE_TTL_MS,
+      browserSessionId,
+    };
 
     const redirectUri = `${getBackendBaseUrl(req)}/auth/${provider}/callback`;
     let authUrl = '';
@@ -385,6 +658,10 @@ app.get('/auth/:provider/start', async (req, res) => {
       url.searchParams.set('response_type', 'code');
       url.searchParams.set('scope', 'openid email profile');
       url.searchParams.set('state', state);
+      const codeVerifier = generatePkceCodeVerifier();
+      url.searchParams.set('code_challenge', generatePkceCodeChallenge(codeVerifier));
+      url.searchParams.set('code_challenge_method', 'S256');
+      stateData.codeVerifier = codeVerifier;
       authUrl = url.toString();
     } else {
       const clientId = process.env.NAVER_CLIENT_ID?.trim();
@@ -400,6 +677,14 @@ app.get('/auth/:provider/start', async (req, res) => {
       authUrl = url.toString();
     }
 
+    oauthStates.set(state, stateData);
+    res.cookie(OAUTH_BROWSER_SESSION_COOKIE, browserSessionId, {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+      maxAge: OAUTH_STATE_TTL_MS,
+      path: '/',
+    });
     res.redirect(authUrl);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'OAuth 시작에 실패했습니다.';
@@ -461,6 +746,7 @@ app.get('/auth/:provider/callback', async (req, res) => {
           client_secret: clientSecret,
           redirect_uri: redirectUri,
           grant_type: 'authorization_code',
+          ...(savedState.codeVerifier ? { code_verifier: savedState.codeVerifier } : {}),
         }),
       });
 
@@ -561,17 +847,71 @@ app.get('/auth/:provider/callback', async (req, res) => {
 
     const safeUser = sanitizeUser(user);
     const { accessToken, refreshToken } = issueAuthPayload(user);
+    cleanupOAuthAuthCodes();
+    const authCode = crypto.randomBytes(24).toString('hex');
+    oauthAuthCodes.set(authCode, {
+      user: safeUser,
+      accessToken,
+      refreshToken,
+      browserSessionId: savedState.browserSessionId,
+      expiresAt: Date.now() + OAUTH_AUTH_CODE_TTL_MS,
+    });
     const target = new URL('/login', getFrontendBaseUrl(req));
-    target.searchParams.set('accessToken', accessToken);
-    target.searchParams.set('refreshToken', refreshToken);
-    target.searchParams.set(
-      'user',
-      Buffer.from(JSON.stringify(safeUser), 'utf-8').toString('base64url'),
-    );
+    target.searchParams.set('authCode', authCode);
     res.redirect(target.toString());
   } catch (error) {
     const message = error instanceof Error ? error.message : '소셜 로그인 처리에 실패했습니다.';
     redirectWithSocialError(req, res, message);
+  }
+});
+
+app.post('/auth/exchange', (req, res) => {
+  try {
+    const code = typeof req.body?.code === 'string' ? req.body.code : '';
+    if (!code) {
+      logger.warn("auth.exchange.bad_request", {
+        requestId: req.requestId,
+      });
+      res.status(400).json({ error: '유효한 code가 필요합니다.' });
+      return;
+    }
+
+    cleanupOAuthAuthCodes();
+    const auth = oauthAuthCodes.get(code);
+    oauthAuthCodes.delete(code);
+    const browserSessionId = parseCookieValue(req, OAUTH_BROWSER_SESSION_COOKIE);
+
+    if (!auth || auth.expiresAt <= Date.now()) {
+      logger.warn("auth.exchange.invalid_code", {
+        requestId: req.requestId,
+      });
+      res.status(400).json({ error: '만료되었거나 유효하지 않은 code입니다.' });
+      return;
+    }
+    if (!browserSessionId || browserSessionId !== auth.browserSessionId) {
+      logger.warn("auth.exchange.session_mismatch", {
+        requestId: req.requestId,
+      });
+      res.status(403).json({ error: '코드 교환 세션 검증에 실패했습니다.' });
+      return;
+    }
+    setRefreshTokenCookie(res, auth.refreshToken);
+    res.clearCookie(OAUTH_BROWSER_SESSION_COOKIE, { path: '/' });
+
+    logger.info("auth.exchange.success", {
+      requestId: req.requestId,
+      userId: auth.user.id,
+    });
+    res.json({
+      user: auth.user,
+      accessToken: auth.accessToken,
+    });
+  } catch (error) {
+    logger.error("auth.exchange.failed", {
+      requestId: req.requestId,
+      error,
+    });
+    res.status(500).json({ error: '소셜 로그인 코드 교환에 실패했습니다.' });
   }
 });
 
@@ -653,6 +993,8 @@ function createMcpServer(): McpServer {
   server.tool('document.delete', '문서 삭제', documentDeleteSchema, async (args) => documentDeleteHandler(args));
   server.tool('document.share', '문서 공유 토큰 생성/재발급', documentShareSchema, async (args) => documentShareHandler(args));
   server.tool('document.revokeShare', '문서 공유 토큰 해제', documentRevokeShareSchema, async (args) => documentRevokeShareHandler(args));
+  server.tool('brochure.create', '브로셔 패키지 저장', brochureCreateSchema, async (args) => brochureCreateHandler(args));
+  server.tool('brochure.get', '브로셔 패키지 조회', brochureGetSchema, async (args) => brochureGetHandler(args));
   server.tool('message.list', '내 메시지 목록 조회', messageListSchema, async (args) => messageListHandler(args));
   server.tool('message.unreadCount', '안 읽은 메시지 개수 조회', messageUnreadCountSchema, async (args) => messageUnreadCountHandler(args));
   server.tool('message.unreadSummary', '안 읽은 메시지 카테고리 요약 조회', messageUnreadSummarySchema, async (args) => messageUnreadSummaryHandler(args));
@@ -697,8 +1039,31 @@ app.get('/share/:shareToken', async (req, res) => {
       return;
     }
     res.redirect(doc.pdfUrl);
-  } catch (error) {
+  } catch {
+    logger.error("share.redirect.failed", {
+      requestId: req.requestId,
+      shareToken: req.params.shareToken,
+    });
     res.status(500).json({ error: '공유 링크 처리 실패' });
+  }
+});
+
+app.get('/brochure/:id', async (req, res) => {
+  try {
+    const setting = await prisma.appSetting.findUnique({
+      where: { key: `brochure.package.${req.params.id}` },
+      select: { value: true },
+    });
+    const value = setting?.value as { html?: string } | null;
+    const html = typeof value?.html === 'string' ? value.html : '';
+    if (!html) {
+      res.status(404).send('브로셔를 찾을 수 없습니다.');
+      return;
+    }
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.status(200).send(html);
+  } catch {
+    res.status(500).send('브로셔 조회 실패');
   }
 });
 
@@ -724,8 +1089,42 @@ const upload = multer({
   },
 });
 
+const requireUploadAuth = async (
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction,
+) => {
+  try {
+    const authHeader = req.header('authorization') || '';
+    if (!authHeader.startsWith('Bearer ')) {
+      res.status(401).json({ error: '인증이 필요합니다.' });
+      return;
+    }
+
+    const token = authHeader.slice('Bearer '.length).trim();
+    if (!token) {
+      res.status(401).json({ error: '인증이 필요합니다.' });
+      return;
+    }
+
+    const payload = verifyToken(token);
+    const user = await prisma.user.findUnique({
+      where: { id: payload.userId },
+      select: { id: true, isActive: true, deletedAt: true },
+    });
+    if (!user || !user.isActive || !!user.deletedAt) {
+      res.status(401).json({ error: '유효하지 않은 사용자입니다.' });
+      return;
+    }
+
+    next();
+  } catch {
+    res.status(401).json({ error: '유효하지 않은 토큰입니다.' });
+  }
+};
+
 // File upload endpoint
-app.post('/api/upload', upload.single('file'), (req, res) => {
+app.post('/api/upload', requireUploadAuth, upload.single('file'), (req, res) => {
   if (!req.file) {
     res.status(400).json({ error: '파일이 없습니다.' });
     return;
@@ -749,11 +1148,17 @@ app.get('/sse', async (req, res) => {
 
   // Store session using transport's sessionId
   sessions.set(sessionId, { transport, server });
-  console.log(`[SSE] Client connected: ${sessionId}`);
+  logger.info("sse.client.connected", {
+    requestId: req.requestId,
+    sessionId,
+  });
 
   res.on('close', () => {
     sessions.delete(sessionId);
-    console.log(`[SSE] Client disconnected: ${sessionId}`);
+    logger.info("sse.client.disconnected", {
+      requestId: req.requestId,
+      sessionId,
+    });
   });
 
   // Connect MCP server to transport
@@ -766,7 +1171,10 @@ app.post('/messages', async (req, res) => {
   const session = sessions.get(sessionId);
 
   if (!session) {
-    console.log(`[SSE] Session not found: ${sessionId}`);
+    logger.warn("sse.session.not_found", {
+      requestId: req.requestId,
+      sessionId,
+    });
     res.status(404).json({ error: 'Session not found' });
     return;
   }
@@ -775,13 +1183,74 @@ app.post('/messages', async (req, res) => {
     // Pass pre-parsed body to handlePostMessage (third parameter)
     await session.transport.handlePostMessage(req, res, req.body);
   } catch (error) {
-    console.error('[SSE] Error handling message:', error);
+    logger.error("sse.message.failed", {
+      requestId: req.requestId,
+      sessionId,
+      error,
+    });
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
 // Start the Express server
-app.listen(PORT, () => {
-  console.log(`[edux] SSE Server running on http://localhost:${PORT}`);
-  console.log(`[edux] Health check: http://localhost:${PORT}/health`);
+httpServer = app.listen(PORT, () => {
+  logger.info("server.started", {
+    port: Number(PORT),
+    sseUrl: `http://localhost:${PORT}`,
+    healthUrl: `http://localhost:${PORT}/health`,
+  });
+});
+
+httpServer.on("error", (error) => {
+  writeCrashFallback("server.listen.failed", {
+    message: error instanceof Error ? error.message : String(error),
+    stack: error instanceof Error ? error.stack : undefined,
+  });
+  logger.error("server.listen.failed", { error });
+});
+
+const shutdown = (signal: NodeJS.Signals) => {
+  if (shutdownStarted) return;
+  shutdownStarted = true;
+  writeCrashFallback("process.shutdown.signal", { signal });
+  logger.warn("process.shutdown.signal", { signal });
+
+  if (!httpServer) {
+    process.exit(0);
+    return;
+  }
+
+  httpServer.close((error) => {
+    if (error) {
+      writeCrashFallback("server.shutdown.failed", {
+        signal,
+        message: error.message,
+        stack: error.stack,
+      });
+      logger.error("server.shutdown.failed", { signal, error });
+      process.exit(1);
+      return;
+    }
+    logger.info("server.shutdown.completed", { signal });
+    process.exit(0);
+  });
+};
+
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+
+process.on("uncaughtException", (error) => {
+  writeCrashFallback("process.uncaughtException", {
+    message: error.message,
+    stack: error.stack,
+  });
+  logger.error("process.uncaughtException", { error });
+});
+
+process.on("unhandledRejection", (reason) => {
+  writeCrashFallback("process.unhandledRejection", {
+    reason: reason instanceof Error ? reason.message : String(reason),
+    stack: reason instanceof Error ? reason.stack : undefined,
+  });
+  logger.error("process.unhandledRejection", { reason });
 });

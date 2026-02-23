@@ -27,12 +27,11 @@ export default function LoginPage() {
   const [searchParams] = useSearchParams();
   const socialHandledRef = useRef(false);
   const socialLoginEnabled = false;
-
-  const decodeBase64Url = (value: string): string => {
-    const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
-    const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
-    return atob(padded);
-  };
+  const redirectPath = (() => {
+    const candidate = searchParams.get('redirect');
+    if (!candidate) return '/dashboard';
+    return candidate.startsWith('/') ? candidate : '/dashboard';
+  })();
 
   const parseError = (error: unknown): string => {
     const errorMessage =
@@ -83,7 +82,7 @@ export default function LoginPage() {
     try {
       await login(values.email, values.password);
       message.success('로그인되었습니다!');
-      navigate('/dashboard');
+      navigate(redirectPath, { replace: true });
     } catch (error) {
       message.error(withErrorReportId(parseError(error), error));
     } finally {
@@ -94,10 +93,10 @@ export default function LoginPage() {
   useEffect(() => {
     if (socialHandledRef.current) return;
 
-    const accessToken = searchParams.get('accessToken');
-    const refreshToken = searchParams.get('refreshToken');
-    const encodedUser = searchParams.get('user');
+    const authCode = searchParams.get('authCode');
     const socialError = searchParams.get('socialError');
+    const accessToken = searchParams.get('accessToken');
+    const encodedUser = searchParams.get('user');
 
     if (socialError) {
       socialHandledRef.current = true;
@@ -106,20 +105,54 @@ export default function LoginPage() {
       return;
     }
 
-    if (!accessToken || !refreshToken || !encodedUser) return;
+    if (authCode) {
+      socialHandledRef.current = true;
+      (async () => {
+        try {
+          const response = await fetch('/auth/exchange', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code: authCode }),
+          });
+          const payload = (await response.json()) as {
+            user?: unknown;
+            accessToken?: string;
+            error?: string;
+          };
+          if (!response.ok || !payload.accessToken || !payload.user) {
+            throw new Error(payload.error || '소셜 로그인 코드 교환에 실패했습니다.');
+          }
+          loginWithTokens({
+            user: payload.user as Parameters<typeof loginWithTokens>[0]['user'],
+            accessToken: payload.accessToken,
+          });
+          message.success('소셜 로그인되었습니다.');
+          navigate(redirectPath, { replace: true });
+        } catch {
+          message.error('소셜 로그인 응답을 처리하지 못했습니다.');
+          navigate('/login', { replace: true });
+        }
+      })();
+      return;
+    }
+
+    const refreshToken = searchParams.get('refreshToken');
+    if (!accessToken || !encodedUser) return;
 
     try {
-      const user = JSON.parse(decodeBase64Url(encodedUser));
-      loginWithTokens({ user, accessToken, refreshToken });
+      const normalized = encodedUser.replace(/-/g, '+').replace(/_/g, '/');
+      const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
+      const user = JSON.parse(atob(padded));
+      loginWithTokens({ user, accessToken, refreshToken: refreshToken || undefined });
       socialHandledRef.current = true;
       message.success('소셜 로그인되었습니다.');
-      navigate('/dashboard', { replace: true });
+      navigate(redirectPath, { replace: true });
     } catch {
       socialHandledRef.current = true;
       message.error('소셜 로그인 응답을 처리하지 못했습니다.');
       navigate('/login', { replace: true });
     }
-  }, [loginWithTokens, navigate, searchParams]);
+  }, [loginWithTokens, navigate, searchParams, redirectPath]);
 
   return (
     <AuthCardLayout title="로그인" subtitle="Edux에 오신 것을 환영합니다">

@@ -51,7 +51,21 @@
       "Bash(cmd.exe /c \"tasklist | findstr node\")",
       "Bash(cmd.exe /c \"netstat -ano | findstr LISTENING | findstr 7777\")",
       "Bash(cmd.exe /c \"timeout /t 5 /nobreak >nul && echo ready\")",
-      "Bash(cmd.exe /c \"taskkill /F /IM node.exe 2>nul & timeout /t 3 /nobreak >nul & echo cleaned\")"
+      "Bash(cmd.exe /c \"taskkill /F /IM node.exe 2>nul & timeout /t 3 /nobreak >nul & echo cleaned\")",
+      "Bash(npm run dev:worker:*)",
+      "Bash(powershell -NoProfile -Command:*)",
+      "Bash(npx vite:*)",
+      "Bash(wc:*)",
+      "Bash(ls:*)",
+      "WebFetch(domain:www.iwinv.kr)",
+      "WebFetch(domain:www.cafe24.com)",
+      "WebFetch(domain:www.vultr.com)",
+      "WebFetch(domain:www.dothome.co.kr)",
+      "WebFetch(domain:www.gabia.com)",
+      "WebFetch(domain:www.hetzner.com)",
+      "Bash(git fetch:*)",
+      "Bash(git stash:*)",
+      "Bash(git pull:*)"
     ]
   }
 }

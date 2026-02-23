@@ -1,4 +1,5 @@
 import { Queue } from 'bullmq';
+import { logger } from './logger.js';
 
 // Define queue name
 export const RENDER_QUEUE_NAME = 'renderPdfQueue';
@@ -29,14 +30,20 @@ export function getRenderQueue(): Queue | null {
 
       // Listen for error to mark Redis as unavailable
       _renderQueue.on('error', (err) => {
-        console.warn(`[BullMQ] Queue error: ${err.message}. PDF rendering disabled.`);
+        logger.warn('queue.error', {
+          queue: RENDER_QUEUE_NAME,
+          message: err.message,
+        });
         _redisAvailable = false;
       });
 
       _redisAvailable = true;
-      console.log(`[BullMQ] Queue '${RENDER_QUEUE_NAME}' initialized.`);
+      logger.info('queue.initialized', { queue: RENDER_QUEUE_NAME });
     } catch {
-      console.warn('[BullMQ] Failed to create queue. Redis not available. PDF rendering disabled.');
+      logger.warn('queue.init_failed', {
+        queue: RENDER_QUEUE_NAME,
+        reason: 'redis-not-available',
+      });
       _redisAvailable = false;
       return null;
     }

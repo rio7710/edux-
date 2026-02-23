@@ -31,3 +31,12 @@ public/pdf/*.pdf
 # Prisma generated
 /generated/prisma
 /src/generated/prisma
+
+# Runtime & logs
+.runtime/
+logs/
+nul
+
+# Uploaded files
+public/uploads/*
+!public/uploads/.gitkeep

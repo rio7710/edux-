@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback, type CSSProperties } from 'react';
 import {
   Button,
   Table,
@@ -11,60 +11,45 @@ import {
   Divider,
   Avatar,
   Alert,
-  Tooltip,
   Result,
+  Popconfirm,
+  Tag,
 } from 'antd';
 import type { ColumnType } from 'antd/es/table';
 import {
   PlusOutlined,
   EditOutlined,
   EyeOutlined,
+  NotificationOutlined,
   ReloadOutlined,
-  SettingOutlined,
   UserOutlined,
+  DeleteOutlined,
 } from '@ant-design/icons';
 import { useMutation } from '@tanstack/react-query';
 import { api } from '../api/mcpClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useSitePermissions } from '../hooks/useSitePermissions';
 import { useTableConfig } from '../hooks/useTableConfig';
+import { useDraftStorage } from '../hooks/useDraftStorage';
+import { useSessionExpiredGuard } from '../hooks/useSessionExpiredGuard';
 import { buildColumns, NO_COLUMN_KEY } from '../utils/tableConfig';
 import { DEFAULT_COLUMNS } from '../utils/tableDefaults';
 import type { RcFile } from 'antd/es/upload';
 import { useLocation, useNavigate } from 'react-router-dom';
 import AvatarUploadField from '../components/AvatarUploadField';
 import InstructorCareerSection from '../components/InstructorCareerSection';
+import PageHeader from '../components/PageHeader';
 import { isAuthErrorMessage, parseMcpError } from '../utils/error';
-
-interface Degree {
-  name: string;
-  school: string;
-  major: string;
-  year: string;
-  fileUrl?: string;
-}
-
-interface Career {
-  company: string;
-  role: string;
-  period: string;
-  description?: string;
-}
-
-interface Publication {
-  title: string;
-  type: string;
-  year?: string;
-  publisher?: string;
-  url?: string;
-}
-
-interface Certification {
-  name: string;
-  issuer?: string;
-  date?: string;
-  fileUrl?: string;
-}
+import { getPreferredTemplateId } from '../utils/templatePreference';
+import {
+  normalizeInstructorCollections,
+  toCsvText,
+  toOptionalString,
+  type Career,
+  type Certification,
+  type Degree,
+  type Publication,
+} from '../utils/instructorPayload';
 
 interface Instructor {
   id: string;
@@ -88,11 +73,22 @@ interface Instructor {
   createdAt?: string;
   updatedAt?: string;
   Courses?: { id: string; title: string }[];
+  Schedules?: { id: string; date?: string; location?: string }[];
 }
 
+interface InstructorTemplateOption {
+  id: string;
+  name: string;
+  html: string;
+  css: string;
+}
+
+type InstructorDraft = Record<string, unknown> & {
+  id?: string;
+  avatarUrl?: string;
+};
+
 const SERVER_URL = '';
-const toOptionalString = (value: unknown): string | undefined =>
-  typeof value === 'string' ? value : undefined;
 
 const extractYearScore = (value?: string): number | null => {
   if (!value) return null;
@@ -159,6 +155,11 @@ export default function InstructorsPage() {
   const isAdminOperator = user?.role === 'admin' || user?.role === 'operator';
   const [users, setUsers] = useState<Array<{ id: string; name: string; email: string; role: string }>>([]);
   const [usersLoading, setUsersLoading] = useState(false);
+  const [instructorExportTemplates, setInstructorExportTemplates] = useState<InstructorTemplateOption[]>([]);
+  const [selectedInstructorTemplateId, setSelectedInstructorTemplateId] = useState<string>();
+  const [instructorExportLabel, setInstructorExportLabel] = useState('');
+  const [instructorPreviewLoading, setInstructorPreviewLoading] = useState(false);
+  const [instructorExportLoading, setInstructorExportLoading] = useState(false);
   const draftPromptOpenRef = useRef(false);
   const { canAccessMenu, canUseFeature } = useSitePermissions(user?.role);
   const canAccessInstructorsMenu = canAccessMenu('instructors');
@@ -166,49 +167,30 @@ export default function InstructorsPage() {
 
   const draftKey = useMemo(() => 'draft:instructor', []);
 
-  const saveDraft = (values?: Record<string, unknown>) => {
+  const buildDraftPayload = useCallback((values?: Record<string, unknown>): InstructorDraft => {
     const raw = values || form.getFieldsValue();
-    const payload = {
+    return {
       ...raw,
       id: editingInstructor?.id || (raw.id as string) || undefined,
       avatarUrl,
       updatedAt: new Date().toISOString(),
     };
-    localStorage.setItem(draftKey, JSON.stringify(payload));
-  };
+  }, [avatarUrl, editingInstructor?.id, form]);
 
-  const loadDraft = () => {
-    const stored = localStorage.getItem(draftKey);
-    if (!stored) return null;
-    try {
-      return JSON.parse(stored);
-    } catch {
-      return null;
-    }
-  };
-
-  const clearDraft = () => {
-    localStorage.removeItem(draftKey);
-  };
+  const { saveDraft, loadDraft, clearDraft } = useDraftStorage<InstructorDraft>(
+    draftKey,
+    buildDraftPayload,
+  );
 
   const isAuthError = (messageText: string) => isAuthErrorMessage(messageText);
 
-  const handleSessionExpired = (reason?: string) => {
-    saveDraft();
-    Modal.confirm({
-      title: '세션이 만료되었습니다',
-      content:
-        reason
-          ? `작성 중인 내용을 임시 저장했습니다. (${reason})`
-          : '작성 중인 내용을 임시 저장했습니다. 다시 로그인해주세요.',
-      okText: '로그인으로 이동',
-      cancelButtonProps: { style: { display: 'none' } },
-      onOk: () => {
-        logout();
-        navigate('/login');
-      },
-    });
-  };
+  const handleSessionExpired = useSessionExpiredGuard({
+    saveDraft,
+    onGoToLogin: () => {
+      logout();
+      navigate('/login');
+    },
+  });
 
   const loadInstructors = async () => {
     if (!accessToken) {
@@ -244,7 +226,7 @@ export default function InstructorsPage() {
     return () => {
       window.removeEventListener('sessionExpired', handler);
     };
-  }, []);
+  }, [saveDraft]);
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -265,6 +247,11 @@ export default function InstructorsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.search]);
 
+  useEffect(() => {
+    if (!viewInstructor || !accessToken) return;
+    void loadInstructorExportTemplates();
+  }, [viewInstructor?.id, accessToken]);
+
   const loadUsers = async (): Promise<Array<{ id: string; name: string; email: string; role: string }>> => {
     if (!accessToken) return [];
     try {
@@ -278,6 +265,33 @@ export default function InstructorsPage() {
       return [];
     } finally {
       setUsersLoading(false);
+    }
+  };
+
+  const loadInstructorExportTemplates = async () => {
+    if (!accessToken) return;
+    try {
+      const result = (await api.templateList(1, 100, 'instructor_profile', accessToken)) as {
+        items: InstructorTemplateOption[];
+      };
+      const items = result.items || [];
+      setInstructorExportTemplates(items);
+      if (items.length > 0) {
+        const preferredTemplateId = getPreferredTemplateId(user?.id, 'instructor_profile');
+        const hasCurrent =
+          !!selectedInstructorTemplateId &&
+          items.some((item) => item.id === selectedInstructorTemplateId);
+        const hasPreferred =
+          !!preferredTemplateId && items.some((item) => item.id === preferredTemplateId);
+        if (hasCurrent) return;
+        if (hasPreferred) {
+          setSelectedInstructorTemplateId(preferredTemplateId);
+          return;
+        }
+        setSelectedInstructorTemplateId(items[0].id);
+      }
+    } catch (error) {
+      console.error('Failed to load instructor export templates:', error);
     }
   };
 
@@ -343,7 +357,8 @@ export default function InstructorsPage() {
   });
 
   const handleUploadFile = async (file: RcFile): Promise<string> => {
-    const result = await api.uploadFile(file);
+    if (!accessToken) throw new Error('인증이 필요합니다.');
+    const result = await api.uploadFile(file, accessToken);
     return result.url;
   };
 
@@ -386,28 +401,19 @@ export default function InstructorsPage() {
           draftPromptOpenRef.current = false;
         },
         onCancel: () => {
-          Modal.confirm({
-            title: '이전 작업 초기화',
-            content: '이전 임시 저장 작업을 삭제하고 새로 시작합니다.',
-            okText: '확인',
-            cancelButtonProps: { style: { display: 'none' } },
-            maskClosable: false,
-            closable: false,
-            onOk: () => {
-              clearDraft();
-              setEditingInstructor(null);
-              setAvatarUrl('');
-              form.resetFields();
-              if (isAdminOperator) {
-                loadUsers();
-                form.setFieldsValue({ userId: undefined, name: '' });
-              } else {
-                form.setFieldsValue({ userId: user?.id, name: user?.name, email: user?.email });
-              }
-              setIsModalOpen(true);
-              draftPromptOpenRef.current = false;
-            },
-          });
+          clearDraft();
+          setEditingInstructor(null);
+          setAvatarUrl('');
+          form.resetFields();
+          if (isAdminOperator) {
+            loadUsers();
+            form.setFieldsValue({ userId: undefined, name: '' });
+          } else {
+            form.setFieldsValue({ userId: user?.id, name: user?.name, email: user?.email });
+          }
+          setIsModalOpen(true);
+          draftPromptOpenRef.current = false;
+          message.info('임시 저장을 삭제하고 새로 작성합니다.');
         },
       });
       return;
@@ -485,8 +491,8 @@ export default function InstructorsPage() {
         affiliation: full.affiliation ?? undefined,
         avatarUrl: full.avatarUrl ?? undefined,
         bio: full.bio ?? undefined,
-        specialties: full.specialties?.join(', '),
-        awards: full.awards?.join(', '),
+        specialties: toCsvText(full.specialties),
+        awards: toCsvText(full.awards),
         degrees: full.degrees || [],
         careers: full.careers || [],
         publications: full.publications || [],
@@ -516,12 +522,7 @@ export default function InstructorsPage() {
         return;
       }
 
-      const specialties = values.specialties
-        ? values.specialties.split(',').map((s: string) => s.trim()).filter(Boolean)
-        : [];
-      const awards = values.awards
-        ? values.awards.split(',').map((s: string) => s.trim()).filter(Boolean)
-        : [];
+      const collections = normalizeInstructorCollections(values as Record<string, unknown>);
 
       const data: Record<string, unknown> = {
         userId: resolvedUserId,
@@ -533,18 +534,121 @@ export default function InstructorsPage() {
         affiliation: toOptionalString(values.affiliation),
         avatarUrl: avatarUrl || undefined,
         bio: toOptionalString(values.bio),
-        specialties,
-        awards,
-        degrees: (values.degrees || []).filter((d: Degree) => d?.name || d?.school),
-        careers: (values.careers || []).filter((c: Career) => c?.company || c?.role),
-        publications: (values.publications || []).filter((p: Publication) => p?.title),
-        certifications: (values.certifications || []).filter((c: Certification) => c?.name),
+        specialties: collections.specialties,
+        awards: collections.awards,
+        degrees: collections.degrees,
+        careers: collections.careers,
+        publications: collections.publications,
+        certifications: collections.certifications,
         id: editingInstructor?.id || values.id,
       };
 
       createMutation.mutate(data);
     } catch (error) {
       // Validation failed
+    }
+  };
+
+  const handleRevokeInstructorRole = async (instructor: Instructor) => {
+    if (!accessToken) {
+      message.warning('로그인 후 이용해주세요.');
+      return;
+    }
+    if (!instructor.userId) {
+      message.warning('연결된 사용자 계정이 없어 권한 해제를 할 수 없습니다.');
+      return;
+    }
+    try {
+      await api.userUpdateRole({
+        token: accessToken,
+        userId: instructor.userId,
+        role: 'viewer',
+      });
+      message.success('강사 권한을 해제했습니다. 등록된 강사 프로필 데이터는 유지됩니다.');
+      await loadInstructors();
+      if (viewInstructor?.id === instructor.id) {
+        fetchMutation.mutate(instructor.id);
+      }
+    } catch (error) {
+      message.error(`강사 권한 해제 실패: ${parseMcpError((error as Error).message)}`);
+    }
+  };
+
+  const buildInstructorPreviewData = (instructor: Instructor) => ({
+    instructor,
+    courses: instructor.Courses || [],
+    schedules: instructor.Schedules || [],
+  });
+
+  const focusedInstructorIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const focusInstructorId = params.get("focus");
+    if (!focusInstructorId || !accessToken) return;
+    if (focusedInstructorIdRef.current === focusInstructorId) return;
+    focusedInstructorIdRef.current = focusInstructorId;
+    fetchMutation.mutate(focusInstructorId);
+  }, [location.search, accessToken, fetchMutation]);
+
+  const handlePreviewInstructorExport = async () => {
+    if (!viewInstructor) return;
+    if (!selectedInstructorTemplateId) {
+      message.warning('템플릿을 선택하세요.');
+      return;
+    }
+    const tpl = instructorExportTemplates.find((t) => t.id === selectedInstructorTemplateId);
+    if (!tpl) {
+      message.warning('선택한 템플릿을 찾을 수 없습니다.');
+      return;
+    }
+    setInstructorPreviewLoading(true);
+    try {
+      const result = await api.templatePreviewHtml(
+        tpl.html,
+        tpl.css,
+        buildInstructorPreviewData(viewInstructor),
+      );
+      const html =
+        typeof result === 'string'
+          ? result
+          : ((result as Record<string, unknown>).html as string) ||
+            ((result as Record<string, unknown>).text as string) ||
+            '';
+      const win = window.open('', '_blank', 'width=900,height=1200');
+      if (win) {
+        win.document.open();
+        win.document.write(html);
+        win.document.close();
+      }
+    } catch (error) {
+      message.error(`미리보기 실패: ${(error as Error).message}`);
+    } finally {
+      setInstructorPreviewLoading(false);
+    }
+  };
+
+  const handleExportInstructorPdf = async () => {
+    if (!viewInstructor || !accessToken) return;
+    if (!selectedInstructorTemplateId) {
+      message.warning('템플릿을 선택하세요.');
+      return;
+    }
+    setInstructorExportLoading(true);
+    try {
+      await api.renderInstructorProfilePdf({
+        token: accessToken,
+        templateId: selectedInstructorTemplateId,
+        profileId: viewInstructor.id,
+        label: instructorExportLabel || undefined,
+      });
+      message.success('강사 프로필 내보내기 작업이 등록되었습니다. 내 문서함에서 확인하세요.');
+      setInstructorExportLabel('');
+      setViewInstructor(null);
+      navigate('/documents');
+    } catch (error) {
+      message.error(`내보내기 실패: ${(error as Error).message}`);
+    } finally {
+      setInstructorExportLoading(false);
     }
   };
 
@@ -669,7 +773,7 @@ export default function InstructorsPage() {
     actions: {
       title: '액션',
       key: 'action',
-      width: 150,
+      width: 200,
       render: (_: unknown, record: Instructor) => (
         <Space>
           <Button
@@ -683,6 +787,21 @@ export default function InstructorsPage() {
             onClick={() => handleEdit(record)}
             disabled={!canUpsertInstructorBySite}
           />
+          <Popconfirm
+            title="강사 권한 해제"
+            description="강사 권한만 해제하고, 개인이 등록한 강사 데이터는 유지합니다. 계속할까요?"
+            okText="해제"
+            cancelText="취소"
+            onConfirm={() => handleRevokeInstructorRole(record)}
+            disabled={user?.role !== 'admin' || !record.userId}
+          >
+            <Button
+              icon={<DeleteOutlined />}
+              size="small"
+              danger
+              disabled={user?.role !== 'admin' || !record.userId}
+            />
+          </Popconfirm>
         </Space>
       ),
     },
@@ -707,6 +826,13 @@ export default function InstructorsPage() {
   const columns = buildColumns<Instructor>(columnConfigs, columnMap);
 
   const sectionStyle = { marginBottom: 0 };
+  const detailSectionStyle: CSSProperties = {
+    border: '1px solid #e5e7eb',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 12,
+    background: '#fff',
+  };
 
   if (!canAccessInstructorsMenu) {
     return (
@@ -720,44 +846,35 @@ export default function InstructorsPage() {
 
   return (
     <div>
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Space size={8} align="center">
-          <h2 style={{ margin: 0 }}>강사 관리</h2>
-          {user?.role === 'admin' && (
-            <Tooltip title="목차 설정으로 이동">
-              <Button
-                type="text"
-                size="small"
-                icon={<SettingOutlined />}
-                onClick={() => navigate('/admin/site-settings?tab=outline&tableKey=instructors')}
-                style={{ padding: 4 }}
-              />
-            </Tooltip>
-          )}
-        </Space>
-        <Space>
-          <Button icon={<ReloadOutlined />} onClick={loadInstructors} loading={loading}>
-            새로고침
-          </Button>
-          <Input.Search
-            placeholder="강사 ID로 조회"
-            onSearch={(id) => id && fetchMutation.mutate(id)}
-            style={{ width: 250 }}
-          />
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={handleCreate}
-            disabled={!canUpsertInstructorBySite}
-          >
-            새 강사
-          </Button>
-        </Space>
-      </div>
+      <PageHeader
+        title="강사 관리"
+        showOutlineShortcut={user?.role === 'admin'}
+        onClickOutlineShortcut={() => navigate('/admin/site-settings?tab=outline&tableKey=instructors')}
+        actions={(
+          <>
+            <Button icon={<ReloadOutlined />} onClick={loadInstructors} loading={loading}>
+              새로고침
+            </Button>
+            <Input.Search
+              placeholder="강사 ID로 조회"
+              onSearch={(id) => id && fetchMutation.mutate(id)}
+              style={{ width: 250 }}
+            />
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={handleCreate}
+              disabled={!canUpsertInstructorBySite}
+            >
+              새 강사
+            </Button>
+          </>
+        )}
+      />
 
       <Alert
         type="info"
-        showIcon
+        showIcon icon={<NotificationOutlined />}
         title="강사 기본 정보와 이력 데이터를 관리합니다."
         description="리스트 컬럼은 사이트 관리의 목차 설정에 따라 표시/순서가 변경됩니다."
         style={{ marginBottom: 16 }}
@@ -885,7 +1002,10 @@ export default function InstructorsPage() {
       <Modal
         title="강사 상세"
         open={!!viewInstructor}
-        onCancel={() => setViewInstructor(null)}
+        onCancel={() => {
+          setViewInstructor(null);
+          setInstructorExportLabel('');
+        }}
         footer={[
           <Button key="close" onClick={() => setViewInstructor(null)}>
             닫기
@@ -904,74 +1024,270 @@ export default function InstructorsPage() {
       >
         {viewInstructor && (
           <div>
-            <div style={{ marginBottom: 16 }}>
-              {viewInstructor.avatarUrl ? (
-                <Avatar size={80} src={`${SERVER_URL}${viewInstructor.avatarUrl}`} />
+            <div
+              style={{
+                border: '1px solid #d9e1ef',
+                borderRadius: 12,
+                padding: 16,
+                background: '#f8fbff',
+                marginBottom: 12,
+              }}
+            >
+              <div style={{ display: 'flex', gap: 16, alignItems: 'center', marginBottom: 12 }}>
+                {viewInstructor.avatarUrl ? (
+                  <Avatar size={80} src={`${SERVER_URL}${viewInstructor.avatarUrl}`} />
+                ) : (
+                  <Avatar size={80} icon={<UserOutlined />} />
+                )}
+                <div>
+                  <div style={{ fontSize: 18, fontWeight: 700 }}>{viewInstructor.name}</div>
+                  <div style={{ color: '#666', marginTop: 4 }}>{viewInstructor.title || '직함 없음'}</div>
+                  <div style={{ marginTop: 8 }}>
+                    <Tag color={viewInstructor.userId ? 'blue' : 'default'}>
+                      {viewInstructor.userId ? '등록강사' : '수동 등록'}
+                    </Tag>
+                  </div>
+                </div>
+              </div>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 1fr',
+                  gap: 12,
+                }}
+              >
+                <div>
+                  <div style={{ color: '#8c8c8c', fontSize: 12 }}>강사 ID</div>
+                  <div style={{ fontFamily: 'monospace' }}>{viewInstructor.id}</div>
+                </div>
+                <div>
+                  <div style={{ color: '#8c8c8c', fontSize: 12 }}>사용자 ID</div>
+                  <div style={{ fontFamily: 'monospace' }}>{viewInstructor.userId || '-'}</div>
+                </div>
+                <div>
+                  <div style={{ color: '#8c8c8c', fontSize: 12 }}>이메일</div>
+                  <div>{viewInstructor.email || '-'}</div>
+                </div>
+                <div>
+                  <div style={{ color: '#8c8c8c', fontSize: 12 }}>전화번호</div>
+                  <div>{viewInstructor.phone || '-'}</div>
+                </div>
+                <div>
+                  <div style={{ color: '#8c8c8c', fontSize: 12 }}>소속</div>
+                  <div>{viewInstructor.affiliation || '-'}</div>
+                </div>
+                <div>
+                  <div style={{ color: '#8c8c8c', fontSize: 12 }}>등록자</div>
+                  <div>{viewInstructor.createdBy || '-'}</div>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontWeight: 600, marginBottom: 6 }}>전문분야</div>
+              <div>{viewInstructor.specialties?.join(', ') || '-'}</div>
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontWeight: 600, marginBottom: 6 }}>수상</div>
+              <div>{viewInstructor.awards?.join(', ') || '-'}</div>
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontWeight: 600, marginBottom: 6 }}>자기소개</div>
+              <div style={{ whiteSpace: 'pre-wrap' }}>{viewInstructor.bio || '-'}</div>
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontWeight: 600, marginBottom: 6 }}>연결 과정</div>
+              {viewInstructor.Courses && viewInstructor.Courses.length > 0 ? (
+                <Space wrap>
+                  {viewInstructor.Courses.map((course) => (
+                    <Tag key={course.id}>{course.title}</Tag>
+                  ))}
+                </Space>
               ) : (
-                <Avatar size={80} icon={<UserOutlined />} />
+                <div>-</div>
               )}
             </div>
 
-            <p><strong>이름:</strong> {viewInstructor.name}</p>
-            <p><strong>직함:</strong> {viewInstructor.title || '-'}</p>
-            <p><strong>소속:</strong> {viewInstructor.affiliation || '-'}</p>
+            <div style={detailSectionStyle}>
+              <div style={{ fontWeight: 600, marginBottom: 8 }}>학위</div>
+              {Array.isArray(viewInstructor.degrees) && viewInstructor.degrees.length > 0 ? (
+                <Space direction="vertical" style={{ width: '100%' }} size={8}>
+                  {viewInstructor.degrees.map((degree, index) => (
+                    <div
+                      key={`${degree.name}-${degree.school}-${index}`}
+                      style={{ border: '1px solid #f0f0f0', borderRadius: 8, padding: 10 }}
+                    >
+                      <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                        <div style={{ width: 18, marginTop: 2 }}>
+                          {degree.fileUrl ? (
+                            <a
+                              href={`${SERVER_URL}${degree.fileUrl}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              aria-label="첨부파일 보기"
+                              title="첨부파일 보기"
+                              style={{ display: 'inline-flex', alignItems: 'center' }}
+                            >
+                              <EyeOutlined />
+                            </a>
+                          ) : null}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 600 }}>
+                            {index + 1}. {degree.name || '-'}
+                          </div>
+                          <div style={{ color: '#666' }}>
+                            {degree.school || '-'} / {degree.major || '-'} / {degree.year || '-'}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </Space>
+              ) : (
+                <div style={{ color: '#999' }}>등록된 학위가 없습니다.</div>
+              )}
+            </div>
 
-            <p><strong>ID:</strong> {viewInstructor.id}</p>
-            <p><strong>사용자 ID:</strong> {viewInstructor.userId || '-'}</p>
-            <p><strong>이메일:</strong> {viewInstructor.email || '-'}</p>
-            <p><strong>전화번호:</strong> {viewInstructor.phone || '-'}</p>
-            <p><strong>전문분야:</strong> {viewInstructor.specialties?.join(', ') || '-'}</p>
-            <p><strong>수상:</strong> {viewInstructor.awards?.join(', ') || '-'}</p>
-            {viewInstructor.bio && <p><strong>자기소개:</strong> {viewInstructor.bio}</p>}
-            <p><strong>등록자:</strong> {viewInstructor.createdBy || '-'}</p>
-            <p>
-              <strong>등록 과정:</strong>{" "}
-              {viewInstructor.Courses && viewInstructor.Courses.length > 0
-                ? viewInstructor.Courses.map((c) => c.title).join(", ")
-                : "-"}
-            </p>
+            <div style={detailSectionStyle}>
+              <div style={{ fontWeight: 600, marginBottom: 8 }}>주요경력</div>
+              {Array.isArray(viewInstructor.careers) && viewInstructor.careers.length > 0 ? (
+                <Space direction="vertical" style={{ width: '100%' }} size={8}>
+                  {viewInstructor.careers.map((career, index) => (
+                    <div
+                      key={`${career.company}-${career.role}-${index}`}
+                      style={{ border: '1px solid #f0f0f0', borderRadius: 8, padding: 10 }}
+                    >
+                      <div style={{ fontWeight: 600 }}>
+                        {index + 1}. {career.company || '-'} / {career.role || '-'}
+                      </div>
+                      <div style={{ color: '#666' }}>{career.period || '-'}</div>
+                      {career.description && (
+                        <div style={{ marginTop: 4, whiteSpace: 'pre-wrap' }}>{career.description}</div>
+                      )}
+                    </div>
+                  ))}
+                </Space>
+              ) : (
+                <div style={{ color: '#999' }}>등록된 주요경력이 없습니다.</div>
+              )}
+            </div>
 
-            {Array.isArray(viewInstructor.degrees) && viewInstructor.degrees.length > 0 && (
-              <>
-                <Divider titlePlacement="start" plain>학위</Divider>
-                {viewInstructor.degrees.map((d, i) => (
-                  <p key={i}>
-                    {d.name} - {d.school} {d.major} ({d.year})
-                    {d.fileUrl && <a href={`${SERVER_URL}${d.fileUrl}`} target="_blank" rel="noreferrer" style={{ marginLeft: 8 }}>첨부파일</a>}
-                  </p>
-                ))}
-              </>
-            )}
+            <div style={detailSectionStyle}>
+              <div style={{ fontWeight: 600, marginBottom: 8 }}>출판/논문</div>
+              {Array.isArray(viewInstructor.publications) && viewInstructor.publications.length > 0 ? (
+                <Space direction="vertical" style={{ width: '100%' }} size={8}>
+                  {viewInstructor.publications.map((publication, index) => (
+                    <div
+                      key={`${publication.title}-${publication.type}-${index}`}
+                      style={{ border: '1px solid #f0f0f0', borderRadius: 8, padding: 10 }}
+                    >
+                      <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                        <div style={{ width: 18, marginTop: 2 }}>
+                          {publication.url ? (
+                            <a
+                              href={publication.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              aria-label="링크 열기"
+                              title="링크 열기"
+                              style={{ display: 'inline-flex', alignItems: 'center' }}
+                            >
+                              <EyeOutlined />
+                            </a>
+                          ) : null}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 600 }}>
+                            {index + 1}. [{publication.type || '-'}] {publication.title || '-'}
+                          </div>
+                          <div style={{ color: '#666' }}>
+                            {publication.publisher || '-'} {publication.year ? `(${publication.year})` : ''}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </Space>
+              ) : (
+                <div style={{ color: '#999' }}>등록된 출판/논문이 없습니다.</div>
+              )}
+            </div>
 
-            {Array.isArray(viewInstructor.careers) && viewInstructor.careers.length > 0 && (
-              <>
-                <Divider titlePlacement="start" plain>주요경력</Divider>
-                {viewInstructor.careers.map((c, i) => (
-                  <p key={i}>{c.company} / {c.role} ({c.period}){c.description ? ` - ${c.description}` : ''}</p>
-                ))}
-              </>
-            )}
+            <div style={detailSectionStyle}>
+              <div style={{ fontWeight: 600, marginBottom: 8 }}>자격증</div>
+              {Array.isArray(viewInstructor.certifications) && viewInstructor.certifications.length > 0 ? (
+                <Space direction="vertical" style={{ width: '100%' }} size={8}>
+                  {viewInstructor.certifications.map((certification, index) => (
+                    <div
+                      key={`${certification.name}-${certification.issuer}-${index}`}
+                      style={{ border: '1px solid #f0f0f0', borderRadius: 8, padding: 10 }}
+                    >
+                      <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                        <div style={{ width: 18, marginTop: 2 }}>
+                          {certification.fileUrl ? (
+                            <a
+                              href={`${SERVER_URL}${certification.fileUrl}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              aria-label="사본 보기"
+                              title="사본 보기"
+                              style={{ display: 'inline-flex', alignItems: 'center' }}
+                            >
+                              <EyeOutlined />
+                            </a>
+                          ) : null}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 600 }}>
+                            {index + 1}. {certification.name || '-'}
+                          </div>
+                          <div style={{ color: '#666' }}>
+                            {certification.issuer || '-'} / {certification.date || '-'}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </Space>
+              ) : (
+                <div style={{ color: '#999' }}>등록된 자격증이 없습니다.</div>
+              )}
+            </div>
 
-            {Array.isArray(viewInstructor.publications) && viewInstructor.publications.length > 0 && (
-              <>
-                <Divider titlePlacement="start" plain>출판/논문</Divider>
-                {viewInstructor.publications.map((p, i) => (
-                  <p key={i}>[{p.type}] {p.title}{p.publisher ? ` - ${p.publisher}` : ''}{p.year ? ` (${p.year})` : ''}</p>
-                ))}
-              </>
-            )}
-
-            {Array.isArray(viewInstructor.certifications) && viewInstructor.certifications.length > 0 && (
-              <>
-                <Divider titlePlacement="start" plain>자격증</Divider>
-                {viewInstructor.certifications.map((c, i) => (
-                  <p key={i}>
-                    {c.name}{c.issuer ? ` (${c.issuer})` : ''}{c.date ? ` - ${c.date}` : ''}
-                    {c.fileUrl && <a href={`${SERVER_URL}${c.fileUrl}`} target="_blank" rel="noreferrer" style={{ marginLeft: 8 }}>사본</a>}
-                  </p>
-                ))}
-              </>
-            )}
+            <Divider />
+            <h3 style={{ marginTop: 0 }}>PDF 내보내기</h3>
+            <Space orientation="vertical" style={{ width: '100%' }} size={12}>
+              <div>
+                <div style={{ marginBottom: 6, fontWeight: 500 }}>템플릿 선택</div>
+                <Select
+                  value={selectedInstructorTemplateId}
+                  onChange={setSelectedInstructorTemplateId}
+                  placeholder="강사 프로필 템플릿을 선택하세요"
+                  style={{ width: '100%' }}
+                  options={instructorExportTemplates.map((t) => ({
+                    value: t.id,
+                    label: t.name,
+                  }))}
+                />
+              </div>
+              <div>
+                <div style={{ marginBottom: 6, fontWeight: 500 }}>문서 라벨 (선택)</div>
+                <Input
+                  value={instructorExportLabel}
+                  onChange={(e) => setInstructorExportLabel(e.target.value)}
+                  placeholder="예: 2026 상반기 강사 프로필"
+                />
+              </div>
+              <Space>
+                <Button loading={instructorPreviewLoading} onClick={handlePreviewInstructorExport}>
+                  미리보기
+                </Button>
+                <Button type="primary" loading={instructorExportLoading} onClick={handleExportInstructorPdf}>
+                  내보내기
+                </Button>
+              </Space>
+            </Space>
           </div>
         )}
       </Modal>

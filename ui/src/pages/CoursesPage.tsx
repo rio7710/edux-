@@ -2,10 +2,10 @@ import {
     DeleteOutlined,
     EditOutlined,
     EyeOutlined,
+    NotificationOutlined,
     PlusOutlined,
     ReloadOutlined,
     ShareAltOutlined,
-    SettingOutlined,
 } from "@ant-design/icons";
 import { useMutation } from "@tanstack/react-query";
 import {
@@ -28,16 +28,20 @@ import {
     Result,
 } from "antd";
 import type { ColumnType } from "antd/es/table";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, mcpClient } from "../api/mcpClient";
 import { useAuth } from "../contexts/AuthContext";
 import { useSitePermissions } from "../hooks/useSitePermissions";
 import { useTableConfig } from "../hooks/useTableConfig";
+import { useDraftStorage } from "../hooks/useDraftStorage";
+import { useSessionExpiredGuard } from "../hooks/useSessionExpiredGuard";
 import { buildColumns, NO_COLUMN_KEY } from "../utils/tableConfig";
 import { DEFAULT_COLUMNS } from "../utils/tableDefaults";
 import { useLocation, useNavigate } from "react-router-dom";
+import PageHeader from "../components/PageHeader";
 import { withErrorReportId } from "../utils/errorReport";
 import { isAuthErrorMessage } from "../utils/error";
+import { getPreferredTemplateId } from "../utils/templatePreference";
 
 interface Lecture {
   id: string;
@@ -101,6 +105,15 @@ interface CourseTemplateOption {
   css: string;
 }
 
+interface MappableLectureOption {
+  value: string;
+  label: string;
+}
+
+type CourseDraft = Record<string, unknown> & {
+  id?: string;
+};
+
 export default function CoursesPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCourse, setEditingCourse] = useState<Course | null>(null);
@@ -125,6 +138,8 @@ export default function CoursesPage() {
   const [mapLectureId, setMapLectureId] = useState("");
   const [mapLectureOrder, setMapLectureOrder] = useState<number | undefined>();
   const [mapLectureLoading, setMapLectureLoading] = useState(false);
+  const [mapLectureOptions, setMapLectureOptions] = useState<MappableLectureOption[]>([]);
+  const [mapLectureOptionsLoading, setMapLectureOptionsLoading] = useState(false);
   const [instructorPickerOpen, setInstructorPickerOpen] = useState(false);
   const [instructorSearch, setInstructorSearch] = useState("");
   const [selectedInstructorRowKeys, setSelectedInstructorRowKeys] = useState<
@@ -165,52 +180,34 @@ export default function CoursesPage() {
 
   const draftKey = useMemo(() => "draft:course", []);
 
-  const saveDraft = (values?: Record<string, unknown>) => {
+  const buildDraftPayload = useCallback((values?: Record<string, unknown>): CourseDraft => {
     const raw = values || form.getFieldsValue();
-    const payload = {
+    return {
       ...raw,
       id: editingCourse?.id || (raw.id as string) || undefined,
       updatedAt: new Date().toISOString(),
     };
-    localStorage.setItem(draftKey, JSON.stringify(payload));
-  };
+  }, [editingCourse?.id, form]);
 
-  const loadDraft = () => {
-    const stored = localStorage.getItem(draftKey);
-    if (!stored) return null;
-    try {
-      return JSON.parse(stored);
-    } catch {
-      return null;
-    }
-  };
-
-  const clearDraft = () => {
-    localStorage.removeItem(draftKey);
-  };
+  const { saveDraft, loadDraft, clearDraft } = useDraftStorage<CourseDraft>(
+    draftKey,
+    buildDraftPayload,
+  );
 
   const isAuthError = (messageText: string) => isAuthErrorMessage(messageText);
 
-  const withReport = (prefix: string, error: unknown) => {
+  const withReport = useCallback((prefix: string, error: unknown) => {
     const detail = error instanceof Error ? error.message : "알 수 없는 오류";
     return withErrorReportId(`${prefix}: ${detail}`, error);
-  };
+  }, []);
 
-  const handleSessionExpired = (reason?: string) => {
-    saveDraft();
-    Modal.confirm({
-      title: "세션이 만료되었습니다",
-      content: reason
-        ? `작성 중인 내용을 임시 저장했습니다. (${reason})`
-        : "작성 중인 내용을 임시 저장했습니다. 다시 로그인해주세요.",
-      okText: "로그인으로 이동",
-      cancelButtonProps: { style: { display: "none" } },
-      onOk: () => {
-        logout();
-        navigate("/login");
-      },
-    });
-  };
+  const handleSessionExpired = useSessionExpiredGuard({
+    saveDraft,
+    onGoToLogin: () => {
+      logout();
+      navigate("/login");
+    },
+  });
 
   const loadCourses = async () => {
     if (!accessToken) {
@@ -303,9 +300,18 @@ export default function CoursesPage() {
       const result = (await api.templateList(1, 100, "course_intro", accessToken)) as {
         items: CourseTemplateOption[];
       };
-      setCourseExportTemplates(result.items || []);
-      if (!selectedCourseTemplateId && (result.items || []).length > 0) {
-        setSelectedCourseTemplateId(result.items[0].id);
+      const items = result.items || [];
+      setCourseExportTemplates(items);
+      if (items.length > 0) {
+        const preferredTemplateId = getPreferredTemplateId(user?.id, "course");
+        const hasCurrent = !!selectedCourseTemplateId && items.some((item) => item.id === selectedCourseTemplateId);
+        const hasPreferred = !!preferredTemplateId && items.some((item) => item.id === preferredTemplateId);
+        if (hasCurrent) return;
+        if (hasPreferred) {
+          setSelectedCourseTemplateId(preferredTemplateId);
+          return;
+        }
+        setSelectedCourseTemplateId(items[0].id);
       }
     } catch (error) {
       console.error("Failed to load course export templates:", error);
@@ -419,6 +425,8 @@ export default function CoursesPage() {
       });
       message.success("코스 내보내기 작업이 등록되었습니다. 내 문서함에서 확인하세요.");
       setCourseExportLabel("");
+      setViewCourse(null);
+      navigate("/documents");
     } catch (error) {
       message.error(`내보내기 실패: ${(error as Error).message}`);
     } finally {
@@ -434,7 +442,7 @@ export default function CoursesPage() {
     return () => {
       window.removeEventListener("sessionExpired", handler);
     };
-  }, []);
+  }, [saveDraft]);
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -501,6 +509,16 @@ export default function CoursesPage() {
       message.error(`조회 실패: ${error.message}`);
     },
   });
+
+  const focusedCourseIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const focusCourseId = params.get("focus");
+    if (!focusCourseId || !accessToken) return;
+    if (focusedCourseIdRef.current === focusCourseId) return;
+    focusedCourseIdRef.current = focusCourseId;
+    fetchCourseMutation.mutate(focusCourseId);
+  }, [location.search, accessToken, fetchCourseMutation]);
 
   // Lecture mutations
   const lectureMutation = useMutation({
@@ -581,21 +599,12 @@ export default function CoursesPage() {
           draftPromptOpenRef.current = false;
         },
         onCancel: () => {
-          Modal.confirm({
-            title: "이전 작업 초기화",
-            content: "이전 임시 저장 작업을 삭제하고 새로 시작합니다.",
-            okText: "확인",
-            cancelButtonProps: { style: { display: "none" } },
-            maskClosable: false,
-            closable: false,
-            onOk: () => {
-              clearDraft();
-              setEditingCourse(null);
-              form.resetFields();
-              setIsModalOpen(true);
-              draftPromptOpenRef.current = false;
-            },
-          });
+          clearDraft();
+          setEditingCourse(null);
+          form.resetFields();
+          setIsModalOpen(true);
+          draftPromptOpenRef.current = false;
+          message.info("임시 저장을 삭제하고 새로 작성합니다.");
         },
       });
       return;
@@ -911,7 +920,7 @@ export default function CoursesPage() {
     if (!viewCourse || !accessToken) return;
     const lectureId = mapLectureId.trim();
     if (!lectureId) {
-      message.warning("매핑할 강의 ID를 입력하세요.");
+      message.warning("연결할 강의를 선택하세요.");
       return;
     }
     setMapLectureLoading(true);
@@ -926,12 +935,75 @@ export default function CoursesPage() {
       setMapLectureId("");
       setMapLectureOrder(undefined);
       fetchCourseMutation.mutate(viewCourse.id);
+      loadMappableLectures();
     } catch (error) {
       message.error(`강의 매핑 실패: ${(error as Error).message}`);
     } finally {
       setMapLectureLoading(false);
     }
   };
+
+  const loadMappableLectures = useCallback(async () => {
+    if (!accessToken || !viewCourse) {
+      setMapLectureOptions([]);
+      return;
+    }
+
+    setMapLectureOptionsLoading(true);
+    try {
+      const [mineCoursesResult, grantResult] = await Promise.all([
+        api.courseListMine(accessToken, 100, 0).catch(() => ({ courses: [] as Course[] })),
+        api.lectureGrantListMine({ token: accessToken }).catch(() => ({ grants: [] as any[] })),
+      ]);
+
+      const mineCourses = ((mineCoursesResult as { courses?: Course[] }).courses || []) as Course[];
+      const ownLectureResults = await Promise.allSettled(
+        mineCourses.map((course) =>
+          api.lectureList(course.id, 100, 0, accessToken).then((result) => ({
+            courseTitle: course.title,
+            lectures: (result as { lectures?: Lecture[] }).lectures || [],
+          })),
+        ),
+      );
+
+      const optionsMap = new Map<string, MappableLectureOption>();
+      const currentLectureIds = new Set((viewCourse.Lectures || []).map((lecture) => lecture.id));
+
+      ownLectureResults.forEach((entry) => {
+        if (entry.status !== "fulfilled") return;
+        const { courseTitle, lectures } = entry.value;
+        lectures.forEach((lecture) => {
+          if (currentLectureIds.has(lecture.id) || optionsMap.has(lecture.id)) return;
+          optionsMap.set(lecture.id, {
+            value: lecture.id,
+            label: `[내 강의] ${lecture.title}${courseTitle ? ` - ${courseTitle}` : ""}`,
+          });
+        });
+      });
+
+      const grants = ((grantResult as { grants?: any[] }).grants || []) as any[];
+      grants.forEach((grant) => {
+        const lecture = grant?.Lecture as Lecture | undefined;
+        if (!lecture?.id || currentLectureIds.has(lecture.id) || optionsMap.has(lecture.id)) return;
+        optionsMap.set(lecture.id, {
+          value: lecture.id,
+          label: `[공유] ${lecture.title}`,
+        });
+      });
+
+      setMapLectureOptions(Array.from(optionsMap.values()));
+    } catch (error) {
+      setMapLectureOptions([]);
+      message.error(withReport("연결 가능한 강의 목록 조회 실패", error));
+    } finally {
+      setMapLectureOptionsLoading(false);
+    }
+  }, [accessToken, viewCourse, withReport]);
+
+  useEffect(() => {
+    if (!viewCourse || !accessToken) return;
+    loadMappableLectures();
+  }, [viewCourse?.id, accessToken, loadMappableLectures]);
 
   const columnMap: Record<string, ColumnType<Course>> = {
     [NO_COLUMN_KEY]: {
@@ -1167,7 +1239,7 @@ export default function CoursesPage() {
       {shareInbox.length > 0 && (
         <Alert
           type="info"
-          showIcon
+          showIcon icon={<NotificationOutlined />}
           style={{ marginBottom: 16 }}
           title={`수락 대기 중인 코스 공유 요청 ${shareInbox.length}건`}
           description={
@@ -1212,62 +1284,46 @@ export default function CoursesPage() {
           }
         />
       )}
-      <div
-        style={{
-          marginBottom: 16,
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-        }}
-      >
-        <Space size={8} align="center">
-          <h2 style={{ margin: 0 }}>코스 관리</h2>
-          {user?.role === "admin" && (
-            <Tooltip title="목차 설정으로 이동">
-              <Button
-                type="text"
-                size="small"
-                icon={<SettingOutlined />}
-                onClick={() =>
-                  navigate("/admin/site-settings?tab=outline&tableKey=courses")
-                }
-                style={{ padding: 4 }}
-              />
-            </Tooltip>
-          )}
-        </Space>
-        <Space>
-          <Button
-            icon={<ReloadOutlined />}
-            onClick={loadCourses}
-            loading={loading}
-          >
-            새로고침
-          </Button>
-          <Input.Search
-            placeholder="코스 ID로 조회"
-            onSearch={(id) => id && fetchCourseMutation.mutate(id)}
-            style={{ width: 250 }}
-          />
-          {canUpsertCourseBySite ? (
-            <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
-              새 코스
+      <PageHeader
+        title="코스 관리"
+        showOutlineShortcut={user?.role === "admin"}
+        onClickOutlineShortcut={() =>
+          navigate("/admin/site-settings?tab=outline&tableKey=courses")
+        }
+        actions={
+          <>
+            <Button
+              icon={<ReloadOutlined />}
+              onClick={loadCourses}
+              loading={loading}
+            >
+              새로고침
             </Button>
-          ) : isAdminOrOperator ? (
-            <Tooltip title="사이트 권한 설정에 따라 코스 등록/수정 기능이 비활성화되었습니다.">
-              <span>
-                <Button type="primary" icon={<PlusOutlined />} disabled>
-                  새 코스
-                </Button>
-              </span>
-            </Tooltip>
-          ) : null}
-        </Space>
-      </div>
+            <Input.Search
+              placeholder="코스 ID로 조회"
+              onSearch={(id) => id && fetchCourseMutation.mutate(id)}
+              style={{ width: 250 }}
+            />
+            {canUpsertCourseBySite ? (
+              <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
+                새 코스
+              </Button>
+            ) : isAdminOrOperator ? (
+              <Tooltip title="사이트 권한 설정에 따라 코스 등록/수정 기능이 비활성화되었습니다.">
+                <span>
+                  <Button type="primary" icon={<PlusOutlined />} disabled>
+                    새 코스
+                  </Button>
+                </span>
+              </Tooltip>
+            ) : null}
+          </>
+        }
+      />
 
       <Alert
         type="info"
-        showIcon
+        showIcon icon={<NotificationOutlined />}
         title={
           isMineOnlyView
             ? "내가 생성한 코스 목록만 조회 중입니다."
@@ -1475,42 +1531,75 @@ export default function CoursesPage() {
       >
         {viewCourse && (
           <div>
-            <p>
-              <strong>ID:</strong> {viewCourse.id}
-            </p>
-            <p>
-              <strong>코스명:</strong> {viewCourse.title}
-            </p>
-            <p>
-              <strong>설명:</strong> {viewCourse.description || "-"}
-            </p>
-            <p>
-              <strong>교육 시간:</strong>{" "}
-              {viewCourse.durationHours
-                ? `${viewCourse.durationHours}시간`
-                : "-"}
-            </p>
-            <p>
-              <strong>온라인:</strong> {viewCourse.isOnline ? "예" : "아니오"}
-            </p>
-            <p>
-              <strong>교육 목표:</strong> {viewCourse.goal || "-"}
-            </p>
-            <p>
-              <strong>교육 내용:</strong> {viewCourse.content || "-"}
-            </p>
-            <p>
-              <strong>비고:</strong> {viewCourse.notes || "-"}
-            </p>
-            <p>
-              <strong>등록자:</strong> {viewCourse.createdBy || "-"}
-            </p>
-            <p>
-              <strong>강사:</strong>{" "}
-              {viewCourse.Instructors && viewCourse.Instructors.length > 0
-                ? viewCourse.Instructors.map((i) => i.name).join(", ")
-                : "-"}
-            </p>
+            <div
+              style={{
+                border: "1px solid #d9e1ef",
+                borderRadius: 12,
+                padding: 16,
+                background: "#f8fbff",
+                marginBottom: 12,
+              }}
+            >
+              <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>
+                기본 정보
+              </div>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                  gap: 12,
+                }}
+              >
+                <div>
+                  <div style={{ color: "#8c8c8c", fontSize: 12 }}>코스명</div>
+                  <div style={{ fontWeight: 600 }}>{viewCourse.title}</div>
+                </div>
+                <div>
+                  <div style={{ color: "#8c8c8c", fontSize: 12 }}>코스 ID</div>
+                  <div style={{ fontFamily: "monospace" }}>{viewCourse.id}</div>
+                </div>
+                <div>
+                  <div style={{ color: "#8c8c8c", fontSize: 12 }}>교육 시간</div>
+                  <div>
+                    {viewCourse.durationHours ? `${viewCourse.durationHours}시간` : "-"}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ color: "#8c8c8c", fontSize: 12 }}>진행 방식</div>
+                  <Tag color={viewCourse.isOnline ? "blue" : "default"}>
+                    {viewCourse.isOnline ? "온라인" : "오프라인"}
+                  </Tag>
+                </div>
+                <div>
+                  <div style={{ color: "#8c8c8c", fontSize: 12 }}>등록자</div>
+                  <div>{viewCourse.createdBy || "-"}</div>
+                </div>
+                <div>
+                  <div style={{ color: "#8c8c8c", fontSize: 12 }}>강사</div>
+                  <div>
+                    {viewCourse.Instructors && viewCourse.Instructors.length > 0
+                      ? viewCourse.Instructors.map((i) => i.name).join(", ")
+                      : "-"}
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontWeight: 600, marginBottom: 6 }}>설명</div>
+              <div style={{ whiteSpace: "pre-wrap" }}>{viewCourse.description || "-"}</div>
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontWeight: 600, marginBottom: 6 }}>교육 목표</div>
+              <div style={{ whiteSpace: "pre-wrap" }}>{viewCourse.goal || "-"}</div>
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontWeight: 600, marginBottom: 6 }}>교육 내용</div>
+              <div style={{ whiteSpace: "pre-wrap" }}>{viewCourse.content || "-"}</div>
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontWeight: 600, marginBottom: 6 }}>비고</div>
+              <div style={{ whiteSpace: "pre-wrap" }}>{viewCourse.notes || "-"}</div>
+            </div>
 
             <Divider />
 
@@ -1543,11 +1632,20 @@ export default function CoursesPage() {
             </div>
 
             <Space style={{ marginBottom: 12 }} wrap>
-              <Input
-                placeholder="기존 강의 ID 입력"
+              <Select
+                showSearch
+                allowClear
+                placeholder="내 강의/공유 강의 선택"
                 value={mapLectureId}
-                onChange={(e) => setMapLectureId(e.target.value)}
-                style={{ width: 260 }}
+                onChange={(value) => setMapLectureId(value || "")}
+                options={mapLectureOptions}
+                loading={mapLectureOptionsLoading}
+                filterOption={(input, option) =>
+                  String(option?.label || "")
+                    .toLowerCase()
+                    .includes(input.toLowerCase())
+                }
+                style={{ width: 320 }}
               />
               <InputNumber
                 min={0}
@@ -1579,7 +1677,7 @@ export default function CoursesPage() {
             {viewCourse?.canEdit === false && (
               <Alert
                 type="warning"
-                showIcon
+                showIcon icon={<NotificationOutlined />}
                 style={{ marginTop: 12 }}
                 title="본인 코스가 아니므로 수정할 수 없습니다."
               />
@@ -1652,7 +1750,7 @@ export default function CoursesPage() {
         <Form layout="vertical">
           <Alert
             type="info"
-            showIcon
+            showIcon icon={<NotificationOutlined />}
             style={{ marginBottom: 12 }}
             title="현재 선택한 강의 1건에만 적용됩니다."
           />
@@ -1681,7 +1779,7 @@ export default function CoursesPage() {
             selectedLectureShareUserIds.length === shareTargets.length ? (
               <Alert
                 type="info"
-                showIcon
+                showIcon icon={<NotificationOutlined />}
                 title="전체공유 ON 상태입니다. 모든 대상자에게 공유됩니다."
               />
             ) : (
@@ -1749,7 +1847,7 @@ export default function CoursesPage() {
             selectedCourseLectureShareUserIds.length === shareTargets.length ? (
               <Alert
                 type="info"
-                showIcon
+                showIcon icon={<NotificationOutlined />}
                 title="전체공유 ON 상태입니다. 모든 대상자에게 공유됩니다."
               />
             ) : (

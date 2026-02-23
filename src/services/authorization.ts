@@ -1,6 +1,7 @@
 import type { PermissionEffect, PermissionGrant, Role, User } from "@prisma/client";
 import { prisma } from "./prisma.js";
 import { verifyToken } from "./jwt.js";
+import { logger } from "./logger.js";
 
 type ActorUser = Pick<User, "id" | "email" | "role" | "isActive" | "deletedAt">;
 type GrantSource = "user" | "group" | "role" | "role-default";
@@ -412,6 +413,13 @@ export async function requirePermission(
 ) {
   const decision = await evaluatePermission({ token, permissionKey });
   if (!decision.allowed) {
+    logger.warn("auth.permission.denied", {
+      userId: decision.actor.id,
+      role: decision.actor.role,
+      permissionKey,
+      reason: decision.reason,
+      source: decision.source,
+    });
     throw new Error(errorMessage);
   }
   return decision.actor;

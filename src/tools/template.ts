@@ -4,8 +4,12 @@ import Handlebars from 'handlebars';
 import { verifyToken } from '../services/jwt.js';
 import { requirePermission } from '../services/authorization.js';
 import { errorResult } from '../services/toolResponse.js';
+import { PDF_PRINT_HELPER_CSS } from '../services/pdfPrintStyles.js';
 
 Handlebars.registerHelper('plus1', (val: number) => val + 1);
+
+const TEMPLATE_TYPE_VALUES = ['instructor_profile', 'course_intro', 'brochure_package'] as const;
+type TemplateType = (typeof TEMPLATE_TYPE_VALUES)[number];
 
 // createdBy ID를 사용자 이름으로 변환하는 헬퍼 함수
 async function resolveCreatorNames<T extends { createdBy?: string | null }>(
@@ -31,7 +35,7 @@ async function resolveCreatorNames<T extends { createdBy?: string | null }>(
 // 스키마 정의
 export const templateCreateSchema = {
   name: z.string().describe('템플릿 이름'),
-  type: z.string().describe('템플릿 타입 (instructor_profile | course_intro 등)'),
+  type: z.enum(TEMPLATE_TYPE_VALUES).describe('템플릿 타입'),
   html: z.string().describe('Handlebars 템플릿 HTML'),
   css: z.string().describe('템플릿 CSS'),
   token: z.string().describe('인증 토큰'),
@@ -45,7 +49,7 @@ export const templateGetSchema = {
 export const templateListSchema = {
   page: z.number().int().min(1).default(1).describe('페이지 번호'),
   pageSize: z.number().int().min(1).max(100).default(20).describe('페이지당 항목 수'),
-  type: z.string().optional().describe('템플릿 타입 필터'),
+  type: z.enum(TEMPLATE_TYPE_VALUES).optional().describe('템플릿 타입 필터'),
   token: z.string().describe('인증 토큰'),
 };
 
@@ -63,7 +67,7 @@ export const templateDeleteSchema = {
 export const templateUpsertSchema = {
   id: z.string().optional().describe('템플릿 ID (수정 시)'),
   name: z.string().describe('템플릿 이름'),
-  type: z.string().describe('템플릿 타입 (instructor_profile | course_intro 등)'),
+  type: z.enum(TEMPLATE_TYPE_VALUES).describe('템플릿 타입'),
   html: z.string().describe('Handlebars 템플릿 HTML'),
   css: z.string().describe('템플릿 CSS'),
   changelog: z.string().optional().describe('변경 로그'),
@@ -73,7 +77,7 @@ export const templateUpsertSchema = {
 // 핸들러 정의
 export async function templateCreateHandler(args: {
   name: string;
-  type: string;
+  type: TemplateType;
   html: string;
   css: string;
   token: string;
@@ -115,7 +119,7 @@ export async function templateCreateHandler(args: {
 export async function templateUpsertHandler(args: {
   id?: string;
   name: string;
-  type: string;
+  type: TemplateType;
   html: string;
   css: string;
   changelog?: string;
@@ -228,7 +232,7 @@ export async function templateGetHandler(args: { id: string; token: string }) {
 export async function templateListHandler(args: {
   page: number;
   pageSize: number;
-  type?: string;
+  type?: TemplateType;
   token: string;
 }) {
   try {
@@ -282,6 +286,7 @@ export async function templatePreviewHtmlHandler(args: {
       <html>
       <head>
           <style>${args.css}</style>
+          <style>${PDF_PRINT_HELPER_CSS}</style>
       </head>
       <body>
           ${renderedHtml}

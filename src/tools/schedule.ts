@@ -277,7 +277,7 @@ export async function scheduleListHandler(args: {
     const schedules = await resolveCreatorNames(rawSchedules);
 
     // 각 스케줄의 강사 등록자도 변환
-    for (let schedule of schedules) {
+    for (const schedule of schedules) {
       if (schedule.Instructor) {
         const [enrichedInstructor] = await resolveCreatorNames([
           schedule.Instructor,

@@ -24,7 +24,7 @@ interface AuthContextType {
   loginWithTokens: (auth: {
     user: User;
     accessToken: string;
-    refreshToken: string;
+    refreshToken?: string;
   }) => void;
   register: (
     email: string,
@@ -56,36 +56,51 @@ const IMPERSONATION_ORIGIN_KEY = "edux_impersonation_origin";
 
 interface StoredAuth {
   accessToken: string;
-  refreshToken: string;
   user: User;
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
-  const [refreshToken, setRefreshToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [impersonationActor, setImpersonationActor] = useState<User | null>(null);
 
-  // Restore auth state from localStorage on mount
+  // Restore auth state from sessionStorage on mount (migrate legacy localStorage once)
   useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
+    const sessionStored = sessionStorage.getItem(STORAGE_KEY);
+    const legacyStored = localStorage.getItem(STORAGE_KEY);
+    const stored = sessionStored ?? legacyStored;
     if (stored) {
       try {
         const auth: StoredAuth = JSON.parse(stored);
+        if (!sessionStored) {
+          sessionStorage.setItem(STORAGE_KEY, stored);
+        }
+        if (legacyStored) {
+          localStorage.removeItem(STORAGE_KEY);
+        }
         setAccessToken(auth.accessToken);
-        setRefreshToken(auth.refreshToken);
         setUser(auth.user);
       } catch {
+        sessionStorage.removeItem(STORAGE_KEY);
         localStorage.removeItem(STORAGE_KEY);
       }
     }
-    const origin = localStorage.getItem(IMPERSONATION_ORIGIN_KEY);
+    const sessionOrigin = sessionStorage.getItem(IMPERSONATION_ORIGIN_KEY);
+    const legacyOrigin = localStorage.getItem(IMPERSONATION_ORIGIN_KEY);
+    const origin = sessionOrigin ?? legacyOrigin;
     if (origin) {
       try {
         const parsed: StoredAuth = JSON.parse(origin);
+        if (!sessionOrigin) {
+          sessionStorage.setItem(IMPERSONATION_ORIGIN_KEY, origin);
+        }
+        if (legacyOrigin) {
+          localStorage.removeItem(IMPERSONATION_ORIGIN_KEY);
+        }
         setImpersonationActor(parsed.user);
       } catch {
+        sessionStorage.removeItem(IMPERSONATION_ORIGIN_KEY);
         localStorage.removeItem(IMPERSONATION_ORIGIN_KEY);
       }
     }
@@ -93,17 +108,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const saveAuth = (auth: StoredAuth) => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(auth));
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(auth));
     setAccessToken(auth.accessToken);
-    setRefreshToken(auth.refreshToken);
     setUser(auth.user);
   };
 
   const clearAuth = () => {
+    sessionStorage.removeItem(STORAGE_KEY);
+    sessionStorage.removeItem(IMPERSONATION_ORIGIN_KEY);
     localStorage.removeItem(STORAGE_KEY);
     localStorage.removeItem(IMPERSONATION_ORIGIN_KEY);
     setAccessToken(null);
-    setRefreshToken(null);
     setUser(null);
     setImpersonationActor(null);
   };
@@ -112,11 +127,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const result = (await api.userLogin({ email, password })) as {
       user: User;
       accessToken: string;
-      refreshToken: string;
     };
     const nextAuth: StoredAuth = {
       accessToken: result.accessToken,
-      refreshToken: result.refreshToken,
       user: result.user,
     };
     saveAuth(nextAuth);
@@ -125,12 +138,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const loginWithTokens = (auth: {
     user: User;
     accessToken: string;
-    refreshToken: string;
+    refreshToken?: string;
   }) => {
     saveAuth({
       user: auth.user,
       accessToken: auth.accessToken,
-      refreshToken: auth.refreshToken,
     });
   };
 
@@ -159,33 +171,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = () => {
+    api.userLogout().catch(() => undefined);
     clearAuth();
   };
 
   const updateUser = (updatedUser: User) => {
     setUser(updatedUser);
-    const stored = localStorage.getItem(STORAGE_KEY);
+    const stored = sessionStorage.getItem(STORAGE_KEY);
     if (stored) {
       const auth: StoredAuth = JSON.parse(stored);
       auth.user = updatedUser;
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(auth));
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(auth));
     }
   };
 
   const extendSession = async () => {
-    if (!refreshToken) {
-      throw new Error("리프레시 토큰이 없습니다.");
-    }
-    const result = (await api.userRefreshToken({ refreshToken, accessToken: accessToken || undefined })) as {
+    const result = (await api.userRefreshToken({ accessToken: accessToken || undefined })) as {
       accessToken: string;
       minutes: number;
       totalMinutes?: number;
     };
-    const stored = localStorage.getItem(STORAGE_KEY);
+    const stored = sessionStorage.getItem(STORAGE_KEY);
     if (stored) {
       const auth: StoredAuth = JSON.parse(stored);
       auth.accessToken = result.accessToken;
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(auth));
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(auth));
     }
     setAccessToken(result.accessToken);
     return result.totalMinutes ?? result.minutes;
@@ -197,11 +207,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       accessToken: string;
       minutes: number;
     };
-    const stored = localStorage.getItem(STORAGE_KEY);
+    const stored = sessionStorage.getItem(STORAGE_KEY);
     if (stored) {
       const auth: StoredAuth = JSON.parse(stored);
       auth.accessToken = result.accessToken;
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(auth));
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(auth));
     }
     setAccessToken(result.accessToken);
     return result.minutes;
@@ -218,13 +228,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       throw new Error("개발 환경에서만 사용할 수 있습니다.");
     }
 
-    if (!localStorage.getItem(IMPERSONATION_ORIGIN_KEY)) {
+    if (!sessionStorage.getItem(IMPERSONATION_ORIGIN_KEY)) {
       const origin: StoredAuth = {
         accessToken,
-        refreshToken: refreshToken || "",
         user,
       };
-      localStorage.setItem(IMPERSONATION_ORIGIN_KEY, JSON.stringify(origin));
+      sessionStorage.setItem(IMPERSONATION_ORIGIN_KEY, JSON.stringify(origin));
       setImpersonationActor(user);
     }
 
@@ -235,14 +244,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })) as {
       user: User;
       accessToken: string;
-      refreshToken: string;
       actor?: User;
     };
 
     saveAuth({
       user: result.user,
       accessToken: result.accessToken,
-      refreshToken: result.refreshToken,
     });
     if (result.actor) {
       setImpersonationActor(result.actor);
@@ -250,12 +257,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const restoreImpersonation = () => {
-    const origin = localStorage.getItem(IMPERSONATION_ORIGIN_KEY);
+    const origin = sessionStorage.getItem(IMPERSONATION_ORIGIN_KEY);
     if (!origin) return;
     try {
       const parsed: StoredAuth = JSON.parse(origin);
       saveAuth(parsed);
     } finally {
+      sessionStorage.removeItem(IMPERSONATION_ORIGIN_KEY);
       localStorage.removeItem(IMPERSONATION_ORIGIN_KEY);
       setImpersonationActor(null);
     }
@@ -266,7 +274,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       value={{
         user,
         accessToken,
-        refreshToken,
+        refreshToken: null,
         isAuthenticated: !!accessToken && !!user,
         isLoading,
         login,

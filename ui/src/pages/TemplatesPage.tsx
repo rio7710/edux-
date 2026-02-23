@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   Button,
   Table,
@@ -9,16 +9,18 @@ import {
   Space,
   Tabs,
   Select,
-  Tooltip,
   Result,
 } from 'antd';
 import type { ColumnType } from 'antd/es/table';
-import { PlusOutlined, EyeOutlined, DeleteOutlined, SettingOutlined } from '@ant-design/icons';
+import { PlusOutlined, EyeOutlined, DeleteOutlined } from '@ant-design/icons';
 import { useMutation } from '@tanstack/react-query';
 import { api } from '../api/mcpClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useSitePermissions } from '../hooks/useSitePermissions';
 import { useTableConfig } from '../hooks/useTableConfig';
+import { useDraftStorage } from '../hooks/useDraftStorage';
+import { useSessionExpiredGuard } from '../hooks/useSessionExpiredGuard';
+import PageHeader from '../components/PageHeader';
 import { buildColumns, NO_COLUMN_KEY } from '../utils/tableConfig';
 import { DEFAULT_COLUMNS } from '../utils/tableDefaults';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -84,6 +86,15 @@ type TemplatesPageProps = {
   defaultCss?: string;
 };
 
+type TemplateDraft = {
+  id?: string;
+  name?: string;
+  type?: string;
+  html?: string;
+  css?: string;
+  updatedAt?: string;
+};
+
 export default function TemplatesPage({
   title = '템플릿 관리',
   description,
@@ -97,7 +108,7 @@ export default function TemplatesPage({
   const [previewTargetOpen, setPreviewTargetOpen] = useState(false);
   const [previewTargetId, setPreviewTargetId] = useState<string | undefined>();
   const [previewTargetType, setPreviewTargetType] = useState<
-    'course_intro' | 'instructor_profile' | undefined
+    'course_intro' | 'instructor_profile' | 'brochure_package' | undefined
   >(undefined);
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
   const [form] = Form.useForm();
@@ -124,9 +135,9 @@ export default function TemplatesPage({
     return 'draft:template:all';
   }, [templateType]);
 
-  const saveDraft = (values?: Record<string, unknown>) => {
+  const buildDraftPayload = useCallback((values?: Record<string, unknown>): TemplateDraft => {
     const raw = values || form.getFieldsValue();
-    const payload = {
+    return {
       ...raw,
       id: editingTemplateId || (raw.id as string) || undefined,
       type: templateType || (raw.type as string) || 'course_intro',
@@ -134,41 +145,22 @@ export default function TemplatesPage({
       css: (raw.css as string) ?? form.getFieldValue('css'),
       updatedAt: new Date().toISOString(),
     };
-    localStorage.setItem(draftKey, JSON.stringify(payload));
-  };
+  }, [editingTemplateId, form, templateType]);
 
-  const loadDraft = () => {
-    const stored = localStorage.getItem(draftKey);
-    if (!stored) return null;
-    try {
-      return JSON.parse(stored);
-    } catch {
-      return null;
-    }
-  };
-
-  const clearDraft = () => {
-    localStorage.removeItem(draftKey);
-  };
+  const { saveDraft, loadDraft, clearDraft } = useDraftStorage<TemplateDraft>(
+    draftKey,
+    buildDraftPayload,
+  );
 
   const isAuthError = (messageText: string) => isAuthErrorMessage(messageText);
 
-  const handleSessionExpired = (reason?: string) => {
-    saveDraft();
-    Modal.confirm({
-      title: '세션이 만료되었습니다',
-      content:
-        reason
-          ? `작성 중인 내용을 임시 저장했습니다. (${reason})`
-          : '작성 중인 내용을 임시 저장했습니다. 다시 로그인해주세요.',
-      okText: '로그인으로 이동',
-      cancelButtonProps: { style: { display: 'none' } },
-      onOk: () => {
-        logout();
-        navigate('/login');
-      },
-    });
-  };
+  const handleSessionExpired = useSessionExpiredGuard({
+    saveDraft,
+    onGoToLogin: () => {
+      logout();
+      navigate('/login');
+    },
+  });
 
   const saveMutation = useMutation({
     mutationFn: (data: { id?: string; name: string; type: string; html: string; css: string }) =>
@@ -341,6 +333,21 @@ export default function TemplatesPage({
             schedules: instructor.Schedules || [],
           };
         }
+      } else if (currentType === 'brochure_package') {
+        const [courseListResult, instructorListResult] = await Promise.all([
+          api.courseList(50, 0, accessToken) as Promise<{ courses?: any[] }>,
+          api.instructorList(accessToken, 50, 0) as Promise<{ instructors?: any[] }>,
+        ]);
+        const sampleCourses = (courseListResult.courses || []).slice(0, 3);
+        const sampleInstructors = (instructorListResult.instructors || []).slice(0, 3);
+        data = {
+          brochure: {
+            title: '브로셔 샘플',
+            summary: '코스와 강사를 묶어 소개하는 브로셔 샘플입니다.',
+          },
+          courses: sampleCourses,
+          instructors: sampleInstructors,
+        };
       }
 
       tabPreviewMutation.mutate({ html, css, data });
@@ -382,27 +389,18 @@ export default function TemplatesPage({
           draftPromptOpenRef.current = false;
         },
         onCancel: () => {
-          Modal.confirm({
-            title: '이전 작업 초기화',
-            content: '이전 임시 저장 작업을 삭제하고 새로 시작합니다.',
-            okText: '확인',
-            cancelButtonProps: { style: { display: 'none' } },
-            maskClosable: false,
-            closable: false,
-            onOk: () => {
-              clearDraft();
-              setEditingTemplateId(null);
-              form.setFieldsValue({
-                name: '',
-                type: templateType || 'course_intro',
-                html: initialHtml,
-                css: initialCss,
-              });
-              setTabPreviewHtml('');
-              setIsModalOpen(true);
-              draftPromptOpenRef.current = false;
-            },
+          clearDraft();
+          setEditingTemplateId(null);
+          form.setFieldsValue({
+            name: '',
+            type: templateType || 'course_intro',
+            html: initialHtml,
+            css: initialCss,
           });
+          setTabPreviewHtml('');
+          setIsModalOpen(true);
+          draftPromptOpenRef.current = false;
+          message.info('임시 저장을 삭제하고 새로 작성합니다.');
         },
       });
       return;
@@ -514,6 +512,37 @@ export default function TemplatesPage({
       setPreviewTargetId(undefined);
       setPreviewTargetType('instructor_profile');
       setPreviewTargetOpen(true);
+      return;
+    }
+
+    if (currentType === 'brochure_package') {
+      if (!accessToken) {
+        message.warning('로그인 후 이용해주세요.');
+        return;
+      }
+      Promise.all([
+        api.courseList(50, 0, accessToken) as Promise<{ courses?: any[] }>,
+        api.instructorList(accessToken, 50, 0) as Promise<{ instructors?: any[] }>,
+      ]).then(([courseListResult, instructorListResult]) => {
+        previewMutation.mutate({
+          html: values.html,
+          css: values.css,
+          data: {
+            brochure: {
+              title: '브로셔 샘플',
+              summary: '코스와 강사를 묶어 소개하는 브로셔 샘플입니다.',
+            },
+            courses: (courseListResult.courses || []).slice(0, 3),
+            instructors: (instructorListResult.instructors || []).slice(0, 3),
+          },
+        });
+      }).catch((error: Error) => {
+        if (isAuthError(error.message)) {
+          handleSessionExpired(error.message);
+          return;
+        }
+        message.error(`브로셔 미리보기 실패: ${error.message}`);
+      });
       return;
     }
 
@@ -700,40 +729,27 @@ export default function TemplatesPage({
 
   return (
     <div>
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
-          <Space size={8} align="center">
-            <h2 style={{ margin: 0 }}>{title}</h2>
-            {user?.role === 'admin' && (
-              <Tooltip title="목차 설정으로 이동">
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<SettingOutlined />}
-                  onClick={() => navigate('/admin/site-settings?tab=outline&tableKey=templates')}
-                  style={{ padding: 4 }}
-                />
-              </Tooltip>
-            )}
-          </Space>
-          {description && (
-            <div style={{ color: '#666', marginTop: 4 }}>{description}</div>
-          )}
-        </div>
-        <Space>
-          <Button onClick={() => listMutation.mutate()} loading={listMutation.isPending}>
-            새로고침
-          </Button>
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={handleCreate}
-            disabled={!canUpsertTemplateBySite}
-          >
-            새 템플릿
-          </Button>
-        </Space>
-      </div>
+      <PageHeader
+        title={title}
+        description={description}
+        showOutlineShortcut={user?.role === 'admin'}
+        onClickOutlineShortcut={() => navigate('/admin/site-settings?tab=outline&tableKey=templates')}
+        actions={(
+          <>
+            <Button onClick={() => listMutation.mutate()} loading={listMutation.isPending}>
+              새로고침
+            </Button>
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={handleCreate}
+              disabled={!canUpsertTemplateBySite}
+            >
+              새 템플릿
+            </Button>
+          </>
+        )}
+      />
 
       <Table
         columns={columns}
@@ -792,6 +808,7 @@ export default function TemplatesPage({
                 options={[
                   { value: 'instructor_profile', label: '강사 프로필' },
                   { value: 'course_intro', label: '과정 소개' },
+                  { value: 'brochure_package', label: '브로셔' },
                 ]}
               />
             </Form.Item>
@@ -888,4 +905,5 @@ export default function TemplatesPage({
   const typeLabelMap: Record<string, string> = {
     instructor_profile: '강사 프로필',
     course_intro: '과정 소개',
+    brochure_package: '브로셔',
   };

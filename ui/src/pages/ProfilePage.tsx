@@ -30,6 +30,16 @@ import InstructorCareerSection from "../components/InstructorCareerSection";
 import PlannedFeaturePanel from "../components/PlannedFeaturePanel";
 import SecuritySettingSection from "../components/SecuritySettingSection";
 import { parseMcpError } from "../utils/error";
+import {
+  linksTextToJson,
+  normalizeInstructorCollections,
+  toCsvText,
+  toOptionalString,
+  type Career,
+  type Certification,
+  type Degree,
+  type Publication,
+} from "../utils/instructorPayload";
 
 const { Title, Text } = Typography;
 
@@ -60,36 +70,6 @@ interface InstructorDataFallback {
   links?: unknown;
 }
 
-interface Degree {
-  name: string;
-  school: string;
-  major: string;
-  year: string;
-  fileUrl?: string;
-}
-
-interface Career {
-  company: string;
-  role: string;
-  period: string;
-  description?: string;
-}
-
-interface Publication {
-  title: string;
-  type: string;
-  year?: string;
-  publisher?: string;
-  url?: string;
-}
-
-interface Certification {
-  name: string;
-  issuer?: string;
-  date?: string;
-  fileUrl?: string;
-}
-
 interface InstructorEntityData {
   id?: string;
   userId?: string;
@@ -109,8 +89,6 @@ interface InstructorEntityData {
   certifications?: Certification[] | null;
 }
 
-const toOptionalString = (value: unknown): string | undefined =>
-  typeof value === "string" ? value : undefined;
 const SERVER_URL = "";
 
 export default function ProfilePage() {
@@ -205,9 +183,9 @@ export default function ProfilePage() {
           avatarUrl: instructorEntityResult?.avatarUrl || undefined,
           affiliation: instructorEntityResult?.affiliation || undefined,
           tagline: instructorEntityResult?.tagline || undefined,
-          awards: instructorEntityResult?.awards?.join(", ") || undefined,
+          awards: toCsvText(instructorEntityResult?.awards) || undefined,
           bio: instructorEntityResult?.bio || undefined,
-          specialties: instructorEntityResult?.specialties?.join(", ") || undefined,
+          specialties: toCsvText(instructorEntityResult?.specialties) || undefined,
           degrees: instructorEntityResult?.degrees || [],
           careers: instructorEntityResult?.careers || [],
           publications: instructorEntityResult?.publications || [],
@@ -303,50 +281,19 @@ export default function ProfilePage() {
 
   const parseError = (errorMessage: string): string => parseMcpError(errorMessage);
 
-  const normalizeInstructorPayload = (values: any) => {
-    let parsedLinks: unknown = undefined;
-    if (typeof values.linksText === "string") {
-      const trimmed = values.linksText.trim();
-      if (!trimmed) {
-        parsedLinks = null;
-      } else {
-        try {
-          const parsed = JSON.parse(trimmed);
-          const valid =
-            Array.isArray(parsed) &&
-            parsed.every(
-              (item) =>
-                item &&
-                typeof item === "object" &&
-                typeof item.label === "string" &&
-                typeof item.url === "string",
-            );
-          if (!valid) {
-            throw new Error();
-          }
-          parsedLinks = parsed;
-        } catch {
-          throw new Error(
-            "추가 링크(JSON)는 [{\"label\":\"...\",\"url\":\"...\"}] 형식이어야 합니다.",
-          );
-        }
-      }
-    }
-
-    return {
-      displayName: values.name || values.displayName,
-      title: values.title,
-      bio: values.bio,
-      phone: values.phone,
-      website: values.website,
-      links: parsedLinks,
-    };
-  };
+  const normalizeInstructorPayload = (values: any) => ({
+    displayName: values.name || values.displayName,
+    title: toOptionalString(values.title),
+    bio: toOptionalString(values.bio),
+    phone: toOptionalString(values.phone),
+    website: toOptionalString(values.website),
+    links: linksTextToJson(values.linksText),
+  });
 
   const handleUserAvatarUpload = async (info: { file: RcFile }) => {
     try {
       setAvatarUploading(true);
-      const result = await api.uploadFile(info.file);
+      const result = await api.uploadFile(info.file, accessToken);
       nameForm.setFieldValue("avatarUrl", result.url);
       message.success("프로필 사진이 업로드되었습니다.");
     } catch {
@@ -359,7 +306,7 @@ export default function ProfilePage() {
   const handleInstructorAvatarUpload = async (info: { file: RcFile }) => {
     try {
       setAvatarUploading(true);
-      const result = await api.uploadFile(info.file);
+      const result = await api.uploadFile(info.file, accessToken);
       instructorDetailForm.setFieldValue("avatarUrl", result.url);
       message.success("강사 사진이 업로드되었습니다.");
     } catch {
@@ -372,7 +319,7 @@ export default function ProfilePage() {
   const handleInstructorRequestAvatarUpload = async (info: { file: RcFile }) => {
     try {
       setAvatarUploading(true);
-      const result = await api.uploadFile(info.file);
+      const result = await api.uploadFile(info.file, accessToken);
       instructorForm.setFieldValue("avatarUrl", result.url);
       message.success("강사 사진이 업로드되었습니다.");
     } catch {
@@ -383,7 +330,7 @@ export default function ProfilePage() {
   };
 
   const handleUploadFile = async (file: RcFile): Promise<string> => {
-    const result = await api.uploadFile(file);
+    const result = await api.uploadFile(file, accessToken);
     return result.url;
   };
 
@@ -415,6 +362,9 @@ export default function ProfilePage() {
             ? instructorEntity
             : ((await api.instructorGetByUser(accessToken)) as InstructorEntityData);
           if (current?.id) {
+            const currentCollections = normalizeInstructorCollections(
+              (current as unknown as Record<string, unknown>) || {},
+            );
             await api.instructorUpsert({
               token: accessToken,
               id: current.id,
@@ -424,11 +374,11 @@ export default function ProfilePage() {
               phone: result.phone ?? undefined,
               affiliation: toOptionalString(current.affiliation),
               bio: toOptionalString(current.bio),
-              specialties: current.specialties || [],
-              degrees: current.degrees || [],
-              careers: current.careers || [],
-              publications: current.publications || [],
-              certifications: current.certifications || [],
+              specialties: currentCollections.specialties,
+              degrees: currentCollections.degrees,
+              careers: currentCollections.careers,
+              publications: currentCollections.publications,
+              certifications: currentCollections.certifications,
             });
             setInstructorEntity({ ...current, name: result.name });
           }
@@ -498,25 +448,25 @@ export default function ProfilePage() {
     setInstructorLoading(true);
     try {
       const payload = normalizeInstructorPayload(values);
-      const specialties = values.specialtiesText
-        ? values.specialtiesText.split(",").map((s: string) => s.trim()).filter(Boolean)
-        : undefined;
-      const degrees = (values.degrees || []).filter((d: Degree) => d?.name || d?.school);
-      const careers = (values.careers || []).filter((c: Career) => c?.company || c?.role);
-      const publications = (values.publications || []).filter((p: Publication) => p?.title);
-      const certifications = (values.certifications || []).filter((c: Certification) => c?.name);
+      const collections = normalizeInstructorCollections(
+        values as Record<string, unknown>,
+        {
+          specialtiesField: "specialtiesText",
+          keepEmptyArrays: false,
+        },
+      );
 
       await api.requestInstructor({
         token: accessToken!,
         ...payload,
         avatarUrl: toOptionalString(values.avatarUrl),
-        degrees: degrees.length ? degrees : undefined,
-        careers: careers.length ? careers : undefined,
-        publications: publications.length ? publications : undefined,
-        certifications: certifications.length ? certifications : undefined,
-        specialties: specialties?.length ? specialties : undefined,
-        affiliation: values.affiliation || undefined,
-        email: values.email || undefined,
+        degrees: collections.degrees,
+        careers: collections.careers,
+        publications: collections.publications,
+        certifications: collections.certifications,
+        specialties: collections.specialties,
+        affiliation: toOptionalString(values.affiliation),
+        email: toOptionalString(values.email),
       });
       message.success(
         "강사 신청이 제출되었습니다. 관리자 승인을 기다려주세요.",
@@ -537,12 +487,9 @@ export default function ProfilePage() {
     if (!accessToken) return;
     setInstructorDetailLoading(true);
     try {
-      const specialties = values.specialties
-        ? values.specialties
-            .split(",")
-            .map((s: string) => s.trim())
-            .filter(Boolean)
-        : [];
+      const collections = normalizeInstructorCollections(
+        values as Record<string, unknown>,
+      );
 
       await api.instructorUpsert({
         token: accessToken,
@@ -554,18 +501,13 @@ export default function ProfilePage() {
         avatarUrl: toOptionalString(values.avatarUrl),
         affiliation: toOptionalString(values.affiliation),
         tagline: toOptionalString(values.tagline),
-        awards: values.awards
-          ? values.awards
-              .split(",")
-              .map((v: string) => v.trim())
-              .filter(Boolean)
-          : [],
+        awards: collections.awards,
         bio: toOptionalString(values.bio),
-        specialties,
-        degrees: (values.degrees || []).filter((d: Degree) => d?.name || d?.school),
-        careers: (values.careers || []).filter((c: Career) => c?.company || c?.role),
-        publications: (values.publications || []).filter((p: Publication) => p?.title),
-        certifications: (values.certifications || []).filter((c: Certification) => c?.name),
+        specialties: collections.specialties,
+        degrees: collections.degrees,
+        careers: collections.careers,
+        publications: collections.publications,
+        certifications: collections.certifications,
       });
       await api.updateInstructorProfile({
         token: accessToken,
@@ -595,9 +537,9 @@ export default function ProfilePage() {
         avatarUrl: latest?.avatarUrl || undefined,
         affiliation: latest?.affiliation || undefined,
         tagline: latest?.tagline || undefined,
-        awards: latest?.awards?.join(", ") || undefined,
+        awards: toCsvText(latest?.awards) || undefined,
         bio: latest?.bio || undefined,
-        specialties: latest?.specialties?.join(", ") || undefined,
+        specialties: toCsvText(latest?.specialties) || undefined,
         degrees: latest?.degrees || [],
         careers: latest?.careers || [],
         publications: latest?.publications || [],
@@ -673,6 +615,7 @@ export default function ProfilePage() {
       });
       message.success("내보내기 작업이 등록되었습니다. 내 문서함에서 확인하세요.");
       exportForm.resetFields();
+      navigate("/documents");
     } catch (error) {
       message.error(parseError((error as Error).message));
     } finally {

@@ -531,28 +531,18 @@ export default function Layout() {
         navigate(targetPath as string);
       },
       onCancel: () => {
-        Modal.confirm({
-          title: '이전 작업 초기화',
-          content: '이전 임시 저장 작업을 삭제하고 새로 시작합니다.',
-          okText: '확인',
-          cancelButtonProps: { style: { display: 'none' } },
-          maskClosable: false,
-          closable: false,
-          onOk: () => {
-            if (targetType === 'template') {
-              Object.keys(localStorage || {}).forEach((key) => {
-                if (key.startsWith('draft:template:')) {
-                  localStorage.removeItem(key);
-                }
-              });
-            } else if (targetType === 'course') {
-              localStorage.removeItem('draft:course');
-            } else if (targetType === 'instructor') {
-              localStorage.removeItem('draft:instructor');
+        if (targetType === 'template') {
+          Object.keys(localStorage || {}).forEach((key) => {
+            if (key.startsWith('draft:template:')) {
+              localStorage.removeItem(key);
             }
-            message.success('임시 저장 정보를 삭제했습니다.');
-          },
-        });
+          });
+        } else if (targetType === 'course') {
+          localStorage.removeItem('draft:course');
+        } else if (targetType === 'instructor') {
+          localStorage.removeItem('draft:instructor');
+        }
+        message.success('임시 저장 정보를 삭제했습니다.');
       },
     });
   }, [isAuthenticated, draftPrompted, navigate]);

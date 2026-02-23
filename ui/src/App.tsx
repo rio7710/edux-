@@ -19,6 +19,11 @@ import SiteSettingsPage from './pages/SiteSettingsPage';
 import MyDocumentsPage from './pages/MyDocumentsPage';
 import GroupsPage from './pages/GroupsPage';
 import FeatureSharesPage from './pages/FeatureSharesPage';
+import MobileUserLayout from './components/MobileUserLayout';
+import MobileCoursesPage from './pages/MobileCoursesPage';
+import MobileDocumentsPage from './pages/MobileDocumentsPage';
+import MobileMessagesPage from './pages/MobileMessagesPage';
+import MobileProfilePage from './pages/MobileProfilePage';
 import { mcpClient } from './api/mcpClient';
 import McpRequestMonitor from './components/McpRequestMonitor';
 
@@ -59,6 +64,7 @@ function AppContent() {
           <Route path="instructors" element={<InstructorsPage />} />
           <Route path="templates" element={<TemplatesHubPage />} />
           <Route path="documents" element={<MyDocumentsPage />} />
+          <Route path="my-documents" element={<Navigate to="/documents" replace />} />
           <Route path="feature-shares" element={<FeatureSharesPage />} />
           <Route path="test-echo" element={<TestEchoPage />} />
           <Route path="profile" element={<ProfilePage />} />
@@ -73,6 +79,15 @@ function AppContent() {
             path="admin/board"
             element={<Navigate to="/admin/site-settings?tab=board" replace />}
           />
+        </Route>
+
+        {/* Mobile user mode routes */}
+        <Route path="/m" element={<MobileUserLayout />}>
+          <Route index element={<Navigate to="/m/courses" replace />} />
+          <Route path="courses" element={<MobileCoursesPage />} />
+          <Route path="documents" element={<MobileDocumentsPage />} />
+          <Route path="messages" element={<MobileMessagesPage />} />
+          <Route path="profile" element={<MobileProfilePage />} />
         </Route>
       </Routes>
     </BrowserRouter>
